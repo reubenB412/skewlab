@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skewlab"
+version = "0.1.0"
+description = "Arbitrage-aware equity-option skew & volatility dashboard (SVI, Breeden–Litzenberger, RV-vs-IV)."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Noah" }]
+keywords = ["options", "volatility", "skew", "SVI", "quantitative-finance", "dash", "plotly"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "plotly>=5.18",
+    "dash>=2.11,<3",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[tool.setuptools]
+packages = ["skewlab", "skewlab.charts", "skewlab.pipeline"]
+py-modules = []          # skewlab.py is a run script, not an importable module
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# Pragmatic gate: catch real errors (syntax, undefined names, unused imports) rather than
+# enforce full style on an existing research codebase.
+select = ["E9", "F63", "F7", "F82", "F401"]

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# skewlab runtime artifacts (regenerated; never commit)
+skewlab/_intraday_cache/
+data/
+*.pkl
+
+# Private / local data — NEVER commit
+*.xlsx
+*.xls
+trade_ledger*
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
