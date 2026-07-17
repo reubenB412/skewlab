@@ -32,8 +32,6 @@ to a composite realized-vol estimate, and renders it all in an interactive Dash 
   rolling history; overlays VIX/VVIX empirical distributions and a VVIX/VIX convexity ratio.
 - **Position analytics.** Optional book (manual or from a trade ledger) with analytic
   greeks, a P&L decomposition (realized-vol / vega / delta), and payoff context.
-- **Net-liquidity growth calculator.** An interactive panel projecting continuous-compounding
-  growth of net liquidity with optional **annuity-due** contributions at a chosen frequency.
 
 Everything is wrapped in a Dash dashboard with live sliders per standard-deviation node,
 scenario presets, and a data-inspection layer that exposes every intermediate DataFrame.
@@ -92,14 +90,13 @@ skewlab/
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design decisions and
 [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) for the maths (SVI, Breeden–Litzenberger,
-the RV-vs-IV fair-value calc, the realized-vol estimator stack, and the continuous-compounding
-projection).
+the RV-vs-IV fair-value calc, and the realized-vol estimator stack).
 
 ## Tests
 
 ```bash
 pip install -e ".[dev]"
-pytest                     # put-call parity, BL density ~1, SVI no-arb, annuity-due FV, demo smoke
+pytest                     # put-call parity, BL density ~1, SVI no-arb, demo smoke
 ruff check skewlab
 ```
 

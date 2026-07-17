@@ -12,7 +12,7 @@ skewlab/
   model.py     PURE math. Black-Scholes price/greeks, SVI fit (+ Durrleman butterfly g),
                wing extrapolation, Breeden-Litzenberger density, butterfly/calendar arb,
                distribution stats, delta-target inversion, realized-vol lookback map,
-               the RV-implied ATMF straddle, and the net-liquidity projection.
+               and the RV-implied ATMF straddle.
   data.py      I/O. fetch_snapshot(cfg, cvt, opd) does ALL fetching once and returns an
                immutable Snapshot; CurveState holds the mutable slider knobs. Source helpers
                handle forward/ATF identification (robust to thin chains), the previous-day
@@ -22,7 +22,7 @@ skewlab/
   charts/      one module per chart, each a pure make(snap, cs) -> Figure, plus a registry
                of Chart(key, title, make, needs, reacts) records and active(snap).
   app.py       the Dash app, built generically by iterating the chart registry, with sliders
-               per SD node, scenario presets, and the net-liquidity calculator panel.
+               per SD node and scenario presets.
   pipeline/    the data-source boundary (see below).
   run.py       entry point: build config -> fetch snapshot -> serve dashboard.
   inspect.py   collect_run_data(snap) -> {name: DataFrame} for interactive inspection.

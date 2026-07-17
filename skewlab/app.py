@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
-from . import analysis, model, theme
+from . import analysis, theme
 from . import charts as charts_pkg
 from .data import CurveState
 
@@ -92,42 +92,8 @@ def build_app(snap):
                         "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]}),
                         className="mt-card", style={"marginBottom": "14px", "padding": "6px 8px 8px"})
 
-    # --- net-liquidity growth calculator (continuous compounding + annuity-due deposits) ---
-    def _nl_input(id_, label, value, **kw):
-        return html.Div([html.Div(label, style={**_slbl, "marginTop": "0"}),
-                         dcc.Input(id=id_, type="number", value=value, debounce=True,
-                                   style={"width": "100%", "padding": "7px 9px", "borderRadius": "8px",
-                                          "border": "1px solid #d7dde5", "fontSize": "13px",
-                                          "boxSizing": "border-box"}, **kw)],
-                        style={"flex": "1 1 120px", "minWidth": "108px"})
-
-    netliq_panel = html.Div([
-        html.Div("Net-liquidity growth — continuous compounding", style={
-            "fontWeight": 800, "fontSize": "15px", "color": "#0f172a", "marginBottom": "4px"}),
-        html.Div("value(t) = P·e^(r·t) + level deposits made annuity-due (start of each period), "
-                 "each compounding continuously. No withdrawals; sampled every 6 months.",
-                 style={"fontSize": "11.5px", "color": "#94a3b8", "marginBottom": "13px"}),
-        html.Div([
-            _nl_input("nl_principal", "Principal ($)", 100000, min=0, step=1000),
-            _nl_input("nl_rate", "Cont. rate (%/yr)", 10, step=0.25),
-            _nl_input("nl_years", "Horizon (years)", 10, min=0.5, step=0.5),
-            _nl_input("nl_contrib", "Deposit ($)", 0, min=0, step=500),
-            html.Div([html.Div("Deposit frequency", style={**_slbl, "marginTop": "0"}),
-                      dcc.Dropdown(id="nl_freq", clearable=False, value="1.0",
-                                   options=[{"label": "Every 6 months", "value": "0.5"},
-                                            {"label": "Every 1 year", "value": "1.0"}],
-                                   style={"fontSize": "12px"})],
-                     style={"flex": "1 1 150px", "minWidth": "140px"}),
-        ], style={"display": "flex", "gap": "10px", "flexWrap": "wrap",
-                  "alignItems": "flex-end", "marginBottom": "13px"}),
-        html.Button("Recalculate", id="nl_run", n_clicks=0, className="mt-btn",
-                    style={"background": "#0891b2", "color": "white", "marginBottom": "13px"}),
-        dcc.Loading(html.Div(id="netliq_out"), type="dot"),
-    ], className="mt-card", style={"marginTop": "4px", "padding": "18px"})
-
     main = html.Div([html.Div(id="analysis", style={"marginBottom": "14px"})]
-                    + [_graph_card(k) for k in keys]
-                    + [netliq_panel],
+                    + [_graph_card(k) for k in keys],
                     style={"flex": "1", "padding": "16px", "minWidth": "0"})
 
     topbar = html.Div([
@@ -222,69 +188,6 @@ def build_app(snap):
             an = _h.Pre(f"(analysis unavailable: {e})")
         fig_out = [figs.get(k, go.Figure()) for k in keys]
         return [an] + fig_out + slider_out + [scen_out]
-
-    @app.callback(
-        Output("netliq_out", "children"),
-        Input("nl_run", "n_clicks"),
-        [State("nl_principal", "value"), State("nl_rate", "value"), State("nl_years", "value"),
-         State("nl_contrib", "value"), State("nl_freq", "value")],
-    )
-    def _netliq(_clicks, principal, rate_pct, years, contrib, freq):
-        from dash import dash_table, html as _h
-
-        def _f(v, d):
-            try:
-                x = float(v)
-                return x if np.isfinite(x) else float(d)
-            except (TypeError, ValueError):
-                return float(d)
-
-        P = max(_f(principal, 100000.0), 0.0)
-        r = _f(rate_pct, 10.0) / 100.0
-        yrs = max(_f(years, 10.0), 0.5)
-        C = max(_f(contrib, 0.0), 0.0)
-        dt = _f(freq, 1.0)
-        try:
-            df = model.net_liquidity_projection(P, r, yrs, contribution=C, contrib_freq_years=dt)
-        except Exception as e:
-            return _h.Pre(f"(calculation error: {e})")
-
-        disp = df.copy()
-        disp["date"] = [d.strftime("%Y-%m-%d") for d in df["date"]]
-        disp["years"] = df["years"].map(lambda x: f"{x:.1f}")
-        for col in ("added", "net_liq", "gain"):
-            disp[col] = df[col].map(lambda x: f"${x:,.2f}")
-        labels = {"period": "period", "years": "years", "date": "date",
-                  "added": "deposited", "net_liq": "net liq", "gain": "growth"}
-        cols = [{"name": labels[c], "id": c}
-                for c in ["period", "years", "date", "added", "net_liq", "gain"]]
-        table = dash_table.DataTable(
-            columns=cols, data=disp.to_dict("records"),
-            style_table={"maxHeight": "440px", "overflowY": "auto", "border": "1px solid #eceff3",
-                         "borderRadius": "10px"},
-            style_cell={"fontFamily": "Inter", "fontSize": "12.5px", "padding": "6px 12px",
-                        "textAlign": "right", "border": "none",
-                        "borderBottom": "1px solid #f1f5f9"},
-            style_header={"fontWeight": "700", "background": "#f1f5f9", "textAlign": "right",
-                          "position": "sticky", "top": 0},
-            style_cell_conditional=[{"if": {"column_id": c}, "textAlign": "left"}
-                                    for c in ("period", "years", "date")],
-            style_data_conditional=[{"if": {"row_index": "odd"}, "backgroundColor": "#fafbfc"},
-                                    {"if": {"filter_query": "{period} = " + str(int(df['period'].iloc[-1]))},
-                                     "fontWeight": "700"}],
-        )
-        final = float(df["net_liq"].iloc[-1])
-        tot_add = float(df["added"].iloc[-1])
-        grow = float(df["gain"].iloc[-1])
-        eff = (np.exp(r) - 1.0) * 100.0
-        summary = _h.Div([
-            _h.Span(f"Final: ${final:,.2f}", style={"fontWeight": 800, "fontSize": "14px",
-                    "color": "#0f172a", "marginRight": "14px"}),
-            _h.Span(f"principal ${P:,.0f} + deposited ${tot_add:,.0f} + growth ${grow:,.0f}  ·  "
-                    f"~{eff:.2f}% effective/yr",
-                    style={"color": "#475569", "fontSize": "12.5px"}),
-        ], style={"margin": "2px 0 12px"})
-        return [summary, table]
 
     return app
 

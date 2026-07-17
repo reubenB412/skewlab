@@ -79,23 +79,3 @@ conditional-vol column. The composite `Mean` uses fixed efficiency weights (inve
 variance), which down-weight the noisy close-to-close estimator and up-weight the
 range-based ones. The lookback in trading days is matched to the option's calendar horizon
 via `trading_days_for_dte(dte) = round(dte · 5/7)`.
-
-## 6. Net-liquidity growth (continuous compounding + annuity-due deposits)
-
-Net liquidity is projected under continuous compounding with optional level deposits made
-**annuity-due** (at the *start* of each period):
-
-```
-value(t) = P · e^(r·t)  +  Σ_{t_k ≤ t}  C · e^(r·(t − t_k))
-```
-
-where `r` is the continuously-compounded annual rate (effective/yr = `e^r − 1`), deposits of
-`C` land at `t_k = 0, Δ, 2Δ, …` with `Δ` the deposit interval (6 months or 1 year) and the
-first deposit at `t = 0`. The series is sampled every 6 months. The closed-form check for the
-deposit leg's future value at horizon `N·Δ` is
-
-```
-FV = C · e^(rΔ) · (e^(rΔN) − 1) / (e^(rΔ) − 1)
-```
-
-which the test suite verifies against the simulator.

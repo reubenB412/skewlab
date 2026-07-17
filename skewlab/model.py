@@ -54,59 +54,6 @@ def rv_atmf_straddle(forward, sigma, dte, trading_year=252.0,
     return _SQRT_2_OVER_PI * F * s * np.sqrt(tau)
 
 
-# --- net-liquidity growth projection (continuous compounding + annuity-due deposits) -
-def net_liquidity_projection(principal, rate, years, contribution=0.0,
-                             contrib_freq_years=1.0, sample_years=0.5, start_date=None):
-    """Growth of net liquidity under CONTINUOUS compounding, sampled every `sample_years`
-    (default 6 months), with optional level contributions made ANNUITY-DUE.
-
-        value(t) = principal * e^(r t)  +  sum_{t_k <= t} contribution * e^(r (t - t_k))
-
-    `rate` is the continuously-compounded annual rate (effective/yr = e^r - 1). Annuity-due
-    means deposits land at the START of each period, so t_k = 0, dt, 2dt, ... with the very
-    first deposit at t=0 and the last at (N-1)*dt where dt = contrib_freq_years and
-    N = floor(years/dt). Each deposit then compounds continuously to the valuation time.
-    No withdrawals, taxes or fees.
-
-    Returns a DataFrame, one row per sample point:
-        period        0,1,2,...                         (half-year index by default)
-        years         elapsed years (0, 0.5, 1.0, ...)
-        date          calendar date (start_date or today + round(t*12) months)
-        added         cumulative $ deposited so far (excludes the principal)
-        net_liq       projected net liquidity ($)
-        gain          net_liq - principal - added        (pure investment growth $)
-    """
-    P, r = float(principal), float(rate)
-    yrs, step = float(years), float(sample_years)
-    dt, C = float(contrib_freq_years), float(contribution)
-    n = max(int(round(yrs / step)), 0)
-    t = np.arange(n + 1) * step                              # valuation times (years)
-
-    base = P * np.exp(r * t)
-    contrib_val = np.zeros_like(t, dtype=float)
-    added = np.zeros_like(t, dtype=float)
-    if C != 0.0 and dt > 0:
-        n_pay = int(np.floor(yrs / dt + 1e-9))               # annuity-due: pays at 0..(n_pay-1)*dt
-        tk = np.arange(max(n_pay, 0)) * dt
-        if tk.size:
-            paid = tk[None, :] <= (t[:, None] + 1e-9)        # (samples x deposits) already made?
-            grown = np.where(paid, np.exp(r * (t[:, None] - tk[None, :])), 0.0)
-            contrib_val = C * grown.sum(axis=1)
-            added = C * paid.sum(axis=1)
-
-    value = base + contrib_val
-    start = pd.Timestamp.today().normalize() if start_date is None else pd.Timestamp(start_date)
-    dates = [start + pd.DateOffset(months=int(round(ti * 12))) for ti in t]
-    return pd.DataFrame({
-        "period":  np.arange(n + 1),
-        "years":   t,
-        "date":    dates,
-        "added":   np.round(added, 2),
-        "net_liq": np.round(value, 2),
-        "gain":    np.round(value - P - added, 2),
-    })
-
-
 # --- Black-Scholes (European, continuous dividend q) --------------------------------
 def bs_price_delta(S, K, T, r, q, sigma, is_call):
     """Price and delta of one option."""
