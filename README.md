@@ -16,6 +16,17 @@ to a composite realized-vol estimate, and renders it all in an interactive Dash 
 *Skew panel from the synthetic offline demo (`python skewlab.py`, no credentials): a raw-SVI
 fit with a steep put wing and ATF ≈ 13%, plus previous-day and term-structure overlays.*
 
+![SPY implied risk-neutral density (Breeden–Litzenberger)](docs/implied_density_demo.png)
+
+*Risk-neutral density recovered from the fitted call curve via Breeden–Litzenberger, vs a flat
+log-normal sheet — left-skewed with a fatter downside tail. It stays non-negative everywhere,
+i.e. the smile passes the butterfly no-arbitrage check.*
+
+![SPY implied-vol history vs composite realized](docs/vol_history_demo.png)
+
+*Implied-vol history buckets (ATM, 25Δ/10Δ) against the composite realized-vol estimate — the
+implied-vs-realized comparison behind the variance-risk-premium read.*
+
 ---
 
 ## What it does
