@@ -29,6 +29,20 @@ implied-vs-realized comparison behind the variance-risk-premium read.*
 
 ---
 
+## What it's for
+
+skewlab is the decision-support cockpit for running a **discretionary equity-index options
+book** — primarily short-volatility and skew structures on SPY. Each session it turns the
+day's option chain into the handful of reads a discretionary trader actually acts on: whether
+skew is rich or cheap (the SVI smile and 25Δ risk-reversal versus their own history), whether
+implied vol is rich or cheap against realized (the composite-RV fair straddle and the
+variance-risk premium, now and at the day's open), what the market is actually pricing (the
+risk-neutral distribution — mode, skew, tails — and whether the smile is even
+arbitrage-consistent), and what the book itself is doing (live greeks and a realized-vol /
+vega / delta P&L decomposition against the implied density). The aim is to anchor discretionary
+position decisions to one reproducible surface each day instead of a spreadsheet-and-eyeball
+workflow.
+
 ## What it does
 
 `skewlab` takes an option chain for one expiry and turns it into a decision-support surface:
@@ -84,8 +98,13 @@ VIX/VVIX, trade ledger). Two backends implement that small interface:
 
 | Backend | Source | Use |
 |---|---|---|
-| **Production** | private `CapriciousVolTamer` pipeline (ThetaData terminal, yfinance, local trade ledger) | live use; **not included** in this repo |
+| **Production** | private `CapriciousVolTamer` pipeline — **ThetaData** (settled option chains + greeks), **yfinance** (underlying history + the intraday snapshot), local trade ledger | live use; **not included** in this repo |
 | **Demo** | [`skewlab/pipeline/demo.py`](skewlab/pipeline/demo.py) — reproducible synthetic chains, RV, IV panels, VIX/VVIX, calendar | offline demo, tests, CI |
+
+In live use, settled option chains and option greeks come from **ThetaData**, a professional
+options-data feed; the underlying's price history and the intraday ("today") snapshot come
+from **yfinance**; and the position book is read from a local trade ledger. The demo backend
+fabricates all of this synthetically so nothing is required to run it.
 
 `skewlab.run.get_pipeline()` uses the production backend when importable and falls back to the
 demo one otherwise. This clean seam is what lets the project be public while the proprietary
