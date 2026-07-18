@@ -11,6 +11,11 @@ to a composite realized-vol estimate, and renders it all in an interactive Dash 
 > fully synthetic, reproducible backend, so you can `git clone` and launch the whole
 > dashboard in one command. See [Data backends](#data-backends).
 
+![SPY skew curve — offline demo run](docs/skew_curve_demo.png)
+
+*Skew panel from the synthetic offline demo (`python skewlab.py`, no credentials): a raw-SVI
+fit with a steep put wing and ATF ≈ 13%, plus previous-day and term-structure overlays.*
+
 ---
 
 ## What it does

@@ -23,6 +23,7 @@ data/
 # Private / local data — NEVER commit
 *.xlsx
 *.xls
+*.pdf            # exported dashboard runs — may contain the real position book
 trade_ledger*
 .env
 .env.*
