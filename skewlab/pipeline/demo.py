@@ -50,6 +50,29 @@ def _bs(S, K, T, r, q, sigma, call=True):
     return K * dr * _ncdf(-d2) - S * dq * _ncdf(-d1)
 
 
+# --- calibrated snapshots: reproduce a representative REAL run per symbol -------------
+# `svi` are raw-SVI (Gatheral) params in total-variance space, taken from an actual fitted
+# skewlab run. Chain IVs are the genuine SVI curve  IV(k)=sqrt(w(k)/T),  so the smile is
+# arbitrage-free by construction and, at the default 30DTE, reproduces that run's ATF/shape
+# (SPY: steep put skew, min ~+3.8% log-moneyness, ATF ~13.1%). `spot` pins the symbol's
+# synthetic price to "today"; `atf`/`rv` pin the ATM-IV history and composite realized vol.
+_SNAPSHOTS = {
+    "SPY": dict(spot=751.34, atf=0.131, rv=0.142,
+                svi=dict(a=-0.003, b=0.038, rho=0.01, m=0.038, s=0.110)),
+}
+# reference tenor for the snapshot smile: IV(k)=sqrt(w(k)/T_REF) uses a FIXED denominator so
+# (a) ATF is pinned at the fitted level regardless of the expiry the run snaps to, and
+# (b) total variance = w(k)·T/T_REF rises with maturity, i.e. no calendar arbitrage.
+_SNAP_TREF = 30.0 / 365.0
+
+
+def _svi_w(k, p):
+    """Raw-SVI total variance w(k), k = log-moneyness ln(K/F)."""
+    k = np.asarray(k, float)
+    km = k - p["m"]
+    return p["a"] + p["b"] * (p["rho"] * km + np.sqrt(km * km + p["s"] ** 2))
+
+
 def _seed(symbol):
     """Stable per-symbol seed (independent of PYTHONHASHSEED)."""
     return int.from_bytes(hashlib.md5(str(symbol).encode()).digest()[:4], "big")
@@ -82,6 +105,12 @@ class _World:
         else:
             start = 600.0 if self.symbol.upper() == "SPY" else 60.0 + _seed(symbol) % 400
             close = start * np.exp(np.cumsum(rets))
+
+        # pin a symbol's terminal ("today") spot to its calibrated snapshot. A constant
+        # rescale preserves the path's log-returns, so realized vol is unchanged.
+        _snap = _SNAPSHOTS.get(self.symbol.upper())
+        if _snap and close[-1] > 0:
+            close = close * (_snap["spot"] / close[-1])
 
         hi = close * (1 + np.abs(rng.normal(0, 0.004, n)))
         lo = close * (1 - np.abs(rng.normal(0, 0.004, n)))
@@ -133,15 +162,31 @@ class DemoCVT(_DemoBase):
         T = dte / 365.0
         spot = w.spot_on(obs)
         fwd = spot * np.exp((self.R - self.Q) * T)
-        atf = max(w.rv_on(obs, lookback=max(int(round(dte * 5 / 7)), 2)) * 1.08, 0.06)  # small VRP
-
         step = max(round(spot * 0.004, 2), 0.5)
         ks = np.round(np.arange(spot * 0.62, spot * 1.28, step) / step) * step
         ks = np.unique(ks[ks > 0])
         k = np.log(ks / fwd)                                   # log-moneyness
-        # put-skewed smile with a smooth minimum near the forward (SVI-ish shape)
-        smile = atf * (1.0 + 3.2 * (k - 0.02) ** 2 - 0.55 * k)
-        iv = np.clip(smile, 0.03, 3.0)
+
+        snap = _SNAPSHOTS.get(str(symbol).upper())
+        if snap:
+            # genuine raw-SVI curve from an actual fitted run: IV(k)=sqrt(w(k)/T), so it is
+            # arbitrage-free by construction. The variance level tracks realized vol on the
+            # observation date, so 'today' reproduces the run and earlier overlays differ.
+            lb = max(int(round(dte * 5 / 7)), 2)
+            lvl = 1.0
+            try:
+                rn, ro = w.rv_on(self.today, lb), w.rv_on(obs, lb)
+                if rn > 0:
+                    lvl = float(np.clip(ro / rn, 0.7, 1.4))
+            except Exception:
+                pass
+            iv = np.sqrt(np.maximum(_svi_w(k, snap["svi"]) * lvl * lvl, 1e-8) / _SNAP_TREF)
+        else:
+            # generic put-skewed smile with a smooth minimum near the forward
+            atf = max(w.rv_on(obs, lookback=max(int(round(dte * 5 / 7)), 2)) * 1.08, 0.06)
+            iv = atf * (1.0 + 3.2 * (k - 0.02) ** 2 - 0.55 * k)
+        iv = np.clip(iv, 0.03, 3.0)
+        atf = float(np.interp(0.0, k, iv))                     # ATM-forward IV (for logging)
 
         call = _bs(spot, ks, T, self.R, self.Q, iv, call=True)
         put = _bs(spot, ks, T, self.R, self.Q, iv, call=False)
@@ -165,6 +210,13 @@ class DemoCVT(_DemoBase):
         ewma = lr.ewm(span=max(int(lookback) // 2, 3)).std() * np.sqrt(252)
         yz = cc * 0.95                                         # stand-in Yang–Zhang
         mean = (0.5 * cc + 0.3 * yz + 0.2 * ewma)
+        # pin the latest composite Mean to the snapshot's realized vol (keeps series shape)
+        snap = _SNAPSHOTS.get(str(symbol).upper())
+        if snap and "rv" in snap:
+            m = mean.dropna()
+            if len(m) and m.iloc[-1] > 0:
+                sc = snap["rv"] / float(m.iloc[-1])
+                cc, yz, ewma, mean = cc * sc, yz * sc, ewma * sc, mean * sc
         out = pd.DataFrame({"C-C": cc, "YZ": yz, "EWMA": ewma, "Mean": mean})
         if start is not None:
             out = out.loc[pd.Timestamp(start):]
@@ -232,10 +284,18 @@ class DemoOPD(_DemoBase):
             idx = idx[idx <= pd.Timestamp(end)]
         rng = np.random.default_rng(_seed(symbol) + 7)
         rv = pd.Series({d: w.rv_on(d, max(int(round(target_dte * 5 / 7)), 2)) for d in idx})
-        atm = (rv * 1.08 + rng.normal(0, 0.004, len(idx))).clip(0.05, 2.0)
+        atm = (rv * 1.06 + rng.normal(0, 0.004, len(idx))).clip(0.05, 2.0)
+        # pin the latest ATM-IV to the snapshot so the regime panel's "current" ties out
+        snap = _SNAPSHOTS.get(str(symbol).upper())
+        if snap and len(atm) and atm.iloc[-1] > 0:
+            atm = (atm * (snap["atf"] / float(atm.iloc[-1]))).clip(0.05, 2.0)
+        # time-varying skew wobble so the risk-reversal history has a real distribution
+        # (otherwise today's RR pegs at the 0/100th percentile)
+        sk = 0.035 * np.sin(np.linspace(0, 6.5, len(idx))) + rng.normal(0, 0.012, len(idx))
         hist = pd.DataFrame({
-            "10d_put":  atm * 1.11, "25d_put": atm * 1.06, "atm": atm,
-            "25d_call": atm * 0.97, "10d_call": atm * 0.95,
+            "10d_put":  atm * (1.11 + 1.6 * sk), "25d_put": atm * (1.06 + 1.0 * sk),
+            "atm": atm,
+            "25d_call": atm * (0.97 - 0.5 * sk), "10d_call": atm * (0.95 - 0.8 * sk),
         }, index=idx)
         return atm.rename("atm_iv"), hist
 

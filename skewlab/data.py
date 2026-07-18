@@ -77,6 +77,7 @@ class Snapshot:
     iv_atm: Optional[pd.Series] = None
     iv_history: Optional[pd.DataFrame] = None
     iv_rv: Optional[pd.Series] = None
+    rv_estimators: Optional[pd.DataFrame] = None   # full composite-RV estimator frame (all cols)
     # VIX / VVIX empirical panels: (df, current_close, current_bin) tuples + ratio table
     vix_dist: Optional[tuple] = None            # full history
     vvix_dist: Optional[tuple] = None           # full history
@@ -669,6 +670,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
 
     # --- IV history + realized vol ---
     iv_atm = iv_history = iv_rv = None
+    rv_estimators = None
     if cfg.use_iv_history:
         print("[iv-history] building panels (this can take a while)...")
         try:
@@ -696,6 +698,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
                     start=str(pd.DatetimeIndex(iv_atm.index).min().date()), end=str(cfg.date), verbose=False)
                 if rvdf is not None and "Mean" in getattr(rvdf, "columns", []):
                     iv_rv = rvdf["Mean"].astype(float)
+                    rv_estimators = rvdf          # full estimator frame for the RV-stack chart
             except Exception as e:
                 print(f"[iv-history] realized-vol overlay unavailable: {e}")
 
@@ -823,6 +826,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
         mkt_pdf_x=np.array([]), mkt_pdf_y=np.array([]),
         chain_prev=chain_prev, prev_poly=prev_poly, prev_label=prev_label, prev_obs_date=prev_obs,
         term_bundles=term_bundles, iv_atm=iv_atm, iv_history=iv_history, iv_rv=iv_rv,
+        rv_estimators=rv_estimators,
         vix_dist=vix_dist, vvix_dist=vvix_dist, vix_dist_since=vix_dist_since,
         vvix_dist_since=vvix_dist_since, vix_vvix_ratio=vix_vvix_ratio,
         since_when=cfg.vix_dist_since,

@@ -92,8 +92,32 @@ def build_app(snap):
                         "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]}),
                         className="mt-card", style={"marginBottom": "14px", "padding": "6px 8px 8px"})
 
+    # --- vol-history section: IV-history-vs-realized + RV estimator stack, own start-date ---
+    _gcfg = {"displaylogo": False, "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]}
+    _VH_ON = charts_pkg.vol_history.has_history(snap) or charts_pkg.vol_history.has_estimators(snap)
+    volhist_section = None
+    if _VH_ON:
+        volhist_section = html.Div([
+            html.Div("Vol history — implied vs realized", style={
+                "fontWeight": 800, "fontSize": "15px", "color": "#0f172a", "marginBottom": "4px"}),
+            html.Div("Implied-vol history buckets vs the composite realized-vol Mean, plus the "
+                     "realized-vol estimator stack. Set the x-axis start date and refresh.",
+                     style={"fontSize": "11.5px", "color": "#94a3b8", "marginBottom": "12px"}),
+            html.Div([
+                html.Div([html.Div("X-axis start date", style={**_slbl, "marginTop": "0"}),
+                          dcc.DatePickerSingle(id="vh_start", date="2026-01-01",
+                                               display_format="YYYY-MM-DD")],
+                         style={"marginRight": "12px"}),
+                html.Button("Refresh", id="vh_refresh", n_clicks=0, className="mt-btn",
+                            style={"background": "#0891b2", "color": "white", "alignSelf": "flex-end"}),
+            ], style={"display": "flex", "gap": "10px", "alignItems": "flex-end", "marginBottom": "12px"}),
+            dcc.Loading(dcc.Graph(id="g_iv_vs_rv", config=_gcfg), type="dot"),
+            dcc.Loading(dcc.Graph(id="g_rv_estimators", config=_gcfg), type="dot"),
+        ], className="mt-card", style={"marginTop": "4px", "padding": "18px", "marginBottom": "14px"})
+
     main = html.Div([html.Div(id="analysis", style={"marginBottom": "14px"})]
-                    + [_graph_card(k) for k in keys],
+                    + [_graph_card(k) for k in keys]
+                    + ([volhist_section] if volhist_section is not None else []),
                     style={"flex": "1", "padding": "16px", "minWidth": "0"})
 
     topbar = html.Div([
@@ -188,6 +212,17 @@ def build_app(snap):
             an = _h.Pre(f"(analysis unavailable: {e})")
         fig_out = [figs.get(k, go.Figure()) for k in keys]
         return [an] + fig_out + slider_out + [scen_out]
+
+    if _VH_ON:
+        @app.callback(
+            [Output("g_iv_vs_rv", "figure"), Output("g_rv_estimators", "figure")],
+            [Input("vh_start", "date"), Input("vh_refresh", "n_clicks")],
+        )
+        def _volhist(start_date, _clicks):
+            cs0 = CurveState.market(snap)
+            f1 = charts_pkg.vol_history.make(snap, cs0, start=start_date) or go.Figure()
+            f2 = charts_pkg.vol_history.make_estimators(snap, cs0, start=start_date) or go.Figure()
+            return f1, f2
 
     return app
 

@@ -19,6 +19,7 @@ import numpy as np
 
 from . import (curve, distribution, rv_vs_iv, strike_vol_change, vix_distribution,
                vvix_vix_ratio, position, pnl, iv_history)
+from . import vol_history as vol_history   # re-export: rendered in its own app section, not REGISTRY
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,8 @@ REGISTRY = [
     Chart("iv_history", "IV history & regime", iv_history.make,
           needs=lambda s: s.iv_history is not None and not getattr(s.iv_history, "empty", True),
           reacts=False),
+    # NOTE: iv_vs_rv + rv_estimators (vol_history.py) are NOT registered here — they render
+    # in their own dashboard section with a start-date picker (see app.py `volhist_section`).
 ]
 
 BY_KEY = {c.key: c for c in REGISTRY}

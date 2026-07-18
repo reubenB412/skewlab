@@ -30,6 +30,9 @@ to a composite realized-vol estimate, and renders it all in an interactive Dash 
   at the day's open — a clean read on how rich/cheap implied is vs realized.
 - **Regime context.** Percentile-ranks today's ATM vol and 25Δ risk-reversal against a
   rolling history; overlays VIX/VVIX empirical distributions and a VVIX/VIX convexity ratio.
+- **Vol history (IV vs realized).** Plots the implied-vol history buckets (ATM, 25Δ/10Δ
+  put+call) against the composite realized-vol Mean, plus the realized-vol estimator stack,
+  over an adjustable start date.
 - **Position analytics.** Optional book (manual or from a trade ledger) with analytic
   greeks, a P&L decomposition (realized-vol / vega / delta), and payoff context.
 

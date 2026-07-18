@@ -36,3 +36,13 @@ def test_demo_rv_compare_present():
     f = rv_compare_frame(snap)
     assert "RV_fair" in list(f.index) and "now" in list(f.index)
     assert "rv_compare" in collect_run_data(snap)
+
+
+def test_demo_vol_history_and_estimator_stack_build():
+    cvt, opd = get_demo_pipeline()
+    snap = D.fetch_snapshot(_demo_cfg(use_iv_history=True, iv_hist_start=None), cvt, opd)
+    cs = D.CurveState.market(snap)
+    assert C.vol_history.has_history(snap) and C.vol_history.has_estimators(snap)
+    assert C.vol_history.make(snap, cs) is not None
+    assert C.vol_history.make_estimators(snap, cs) is not None
+    assert snap.rv_estimators is not None and "Mean" in snap.rv_estimators.columns
