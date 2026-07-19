@@ -27,6 +27,16 @@ the smile passes the butterfly no-arbitrage check.*
 *Implied-vol history buckets (ATM, 25Δ/10Δ) against the composite realized-vol estimate — the
 implied-vs-realized comparison behind the variance-risk-premium read.*
 
+![SPY realized-vol estimator stack](docs/rv_estimator_stack_demo.png)
+
+*The composite realized-vol estimator stack — C-C, Parkinson, Hodges–Tompkins, Yang–Zhang,
+EWMA half-life, GARCH — with the blended Mean, the RV input to the fair-value / VRP reads.*
+
+![SPY IV history & regime](docs/iv_history_regime_demo.png)
+
+*The 2×2 regime panel: ATM implied vs realized (carry / VRP), the ATM-vol regime and its
+percentile, 25Δ/10Δ risk-reversal over time, and today's vol-vs-skew position vs its own history.*
+
 ---
 
 ## What it's for

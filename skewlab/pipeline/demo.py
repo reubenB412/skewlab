@@ -206,18 +206,27 @@ class DemoCVT(_DemoBase):
                                           start=None, end=None, verbose=False, **kw):
         w = self.world(symbol)
         lr = pd.Series(w.log_ret, index=w.dates)
-        cc = lr.rolling(int(lookback)).std() * np.sqrt(252)
-        ewma = lr.ewm(span=max(int(lookback) // 2, 3)).std() * np.sqrt(252)
-        yz = cc * 0.95                                         # stand-in Yang–Zhang
-        mean = (0.5 * cc + 0.3 * yz + 0.2 * ewma)
-        # pin the latest composite Mean to the snapshot's realized vol (keeps series shape)
+        n = int(lookback)
+        cc = lr.rolling(n).std() * np.sqrt(252)
+        ewma = lr.ewm(span=max(n // 2, 3)).std() * np.sqrt(252)      # EWMA half-life stand-in
+        rng = np.random.default_rng(_seed(symbol) + 3)
+        def _jog(base, sd):                                          # mimic estimator disagreement
+            return (base * (1.0 + rng.normal(0, sd, len(base)))).clip(lower=1e-4)
+        park = _jog(cc * 0.97, 0.02)                                 # Parkinson (range-based)
+        ht = _jog(cc * 1.00, 0.02)                                   # Hodges–Tompkins
+        yz = _jog(cc * 0.95, 0.02)                                   # Yang–Zhang
+        garch = _jog(cc * 1.03, 0.05)                                # GARCH (more reactive)
+        mean = 0.30 * cc + 0.15 * park + 0.15 * ht + 0.20 * yz + 0.10 * ewma + 0.10 * garch
+        cols = {"C-C": cc, "Parkinson": park, "Hodges-Tompkins": ht, "YZ": yz,
+                "EWMA_halflife": ewma, "GARCH": garch, "Mean": mean}
+        # pin the latest composite Mean to the snapshot's realized vol (scales all, keeps shape)
         snap = _SNAPSHOTS.get(str(symbol).upper())
         if snap and "rv" in snap:
             m = mean.dropna()
             if len(m) and m.iloc[-1] > 0:
                 sc = snap["rv"] / float(m.iloc[-1])
-                cc, yz, ewma, mean = cc * sc, yz * sc, ewma * sc, mean * sc
-        out = pd.DataFrame({"C-C": cc, "YZ": yz, "EWMA": ewma, "Mean": mean})
+                cols = {k: v * sc for k, v in cols.items()}
+        out = pd.DataFrame(cols)
         if start is not None:
             out = out.loc[pd.Timestamp(start):]
         if end is not None:
