@@ -180,7 +180,13 @@ class DemoCVT(_DemoBase):
                     lvl = float(np.clip(ro / rn, 0.7, 1.4))
             except Exception:
                 pass
-            iv = np.sqrt(np.maximum(_svi_w(k, snap["svi"]) * lvl * lvl, 1e-8) / _SNAP_TREF)
+            svi = snap["svi"]
+            back = max((self.today - obs).days, 0)             # an EARLIER obs had a steeper put
+            lvl = 1.0 + 0.06 * (lvl - 1.0)                     # skew that has since flattened. Damp
+            if back > 0:                                        # the level move so a same-expiry
+                f = min(back / 20.0, 1.0)                       # overlay reads as a modest level +
+                svi = dict(svi, rho=svi["rho"] - 0.16 * f)      # SKEW change (crosses zero), not a
+            iv = np.sqrt(np.maximum(_svi_w(k, svi) * lvl * lvl, 1e-8) / _SNAP_TREF)  # level shift.
         else:
             # generic put-skewed smile with a smooth minimum near the forward
             atf = max(w.rv_on(obs, lookback=max(int(round(dte * 5 / 7)), 2)) * 1.08, 0.06)

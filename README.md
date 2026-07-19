@@ -16,6 +16,11 @@ to a composite realized-vol estimate, and renders it all in an interactive Dash 
 *Skew panel from the synthetic offline demo (`python skewlab.py`, no credentials): a raw-SVI
 fit with a steep put wing and ATF ≈ 13%, plus previous-day and term-structure overlays.*
 
+![SPY strike vol changes](docs/strike_vol_change_demo.png)
+
+*Per-strike implied-vol change vs the previous same-expiry observation (red = vol fell, green =
+vol rose) — here a skew flattening: downside/ATM vol came in while the upside firmed.*
+
 ![SPY implied risk-neutral density (Breeden–Litzenberger)](docs/implied_density_demo.png)
 
 *Risk-neutral density from the fitted SVI smile via Breeden–Litzenberger, vs a flat log-normal
