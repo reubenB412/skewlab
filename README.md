@@ -1,6 +1,6 @@
 # skewlab
 
-**An arbitrage-aware equity-option skew & volatility dashboard** — fits the implied smile
+**An arbitrage-aware option skew & volatility dashboard** — fits the implied smile
 with SVI, recovers the risk-neutral density, checks it for arbitrage, compares implied vol
 to a composite realized-vol estimate, and renders it all in an interactive Dash app.
 
@@ -31,9 +31,12 @@ implied-vs-realized comparison behind the variance-risk-premium read.*
 
 ## What it's for
 
-skewlab is the decision-support cockpit for running a **discretionary equity-index options
-book** — primarily short-volatility and skew structures on SPY. Each session it turns the
-day's option chain into the handful of reads a discretionary trader actually acts on: whether
+skewlab is the decision-support cockpit for running a **discretionary options book**. It works
+on essentially any symbol with a listed option chain — across equities and index ETFs,
+commodities, and bonds/rates — and works best on the most liquid names, where the smile and
+greeks are clean (thin or after-hours chains degrade gracefully to a flatter fit). SPY is
+simply the running example in the demo. Each session it turns the day's option chain into the handful of reads a
+discretionary trader actually acts on: whether
 skew is rich or cheap (the SVI smile and 25Δ risk-reversal versus their own history), whether
 implied vol is rich or cheap against realized (the composite-RV fair straddle and the
 variance-risk premium, now and at the day's open), what the market is actually pricing (the

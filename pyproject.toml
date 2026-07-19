@@ -5,11 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "skewlab"
 version = "0.1.0"
-description = "Arbitrage-aware equity-option skew & volatility dashboard (SVI, Breeden–Litzenberger, RV-vs-IV)."
+description = "Arbitrage-aware option skew & volatility dashboard for liquid listed markets — equities, commodities, rates (SVI, Breeden–Litzenberger, RV-vs-IV)."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Noah" }]
-keywords = ["options", "volatility", "skew", "SVI", "quantitative-finance", "dash", "plotly"]
+keywords = ["options", "volatility", "skew", "SVI", "quantitative-finance", "cross-asset",
+            "commodities", "rates", "dash", "plotly"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Office/Business :: Financial :: Investment",
