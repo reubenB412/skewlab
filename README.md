@@ -18,9 +18,9 @@ fit with a steep put wing and ATF ≈ 13%, plus previous-day and term-structure 
 
 ![SPY implied risk-neutral density (Breeden–Litzenberger)](docs/implied_density_demo.png)
 
-*Risk-neutral density recovered from the fitted call curve via Breeden–Litzenberger, vs a flat
-log-normal sheet — left-skewed with a fatter downside tail. It stays non-negative everywhere,
-i.e. the smile passes the butterfly no-arbitrage check.*
+*Risk-neutral density from the fitted SVI smile via Breeden–Litzenberger, vs a flat log-normal
+sheet — left-skewed, mode above the forward, fatter downside tail. Non-negative everywhere, so
+the smile passes the butterfly no-arbitrage check.*
 
 ![SPY implied-vol history vs composite realized](docs/vol_history_demo.png)
 

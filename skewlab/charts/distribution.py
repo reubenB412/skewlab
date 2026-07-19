@@ -1,6 +1,8 @@
 """skewlab.charts.distribution — Breeden-Litzenberger implied density vs flat-sheet."""
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import plotly.graph_objects as go
 
@@ -8,8 +10,13 @@ from .. import model, theme
 
 
 def make(snap, cs, title_suffix=""):
-    fine = snap.fine_strikes(cs.wings_on)
-    calls_skew = model.bs_call_vec(fine, snap.curve_vol(fine, cs), snap.spot, snap.t, snap.r, snap.q)
+    # Density is computed from the SMOOTH SVI fit (wings off), regardless of the skew-curve
+    # wing display. The linear tail extrapolation is a display/pricing convenience; its slope
+    # kink at the grid ends would otherwise inject non-physical spikes into d2C/dK2 (and hence
+    # the risk-neutral density). The fitted smile is the right source for the implied measure.
+    cs_smooth = dataclasses.replace(cs, wings_on=False)
+    fine = snap.fine_strikes(False)
+    calls_skew = model.bs_call_vec(fine, snap.curve_vol(fine, cs_smooth), snap.spot, snap.t, snap.r, snap.q)
     calls_flat = model.bs_call_vec(fine, np.full_like(fine, cs.atf), snap.spot, snap.t, snap.r, snap.q)
     x_pdf = fine[2:-2]
     pdf_skew = model.implied_pdf(fine, calls_skew, snap.r, snap.t)[2:-2]
