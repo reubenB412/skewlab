@@ -42,6 +42,12 @@ EWMA half-life, GARCH — with the blended Mean, the RV input to the fair-value 
 *The 2×2 regime panel: ATM implied vs realized (carry / VRP), the ATM-vol regime and its
 percentile, 25Δ/10Δ risk-reversal over time, and today's vol-vs-skew position vs its own history.*
 
+![SPY skew analysis summary](docs/analysis_summary_demo.png)
+
+*The written read that ties it together — what's going on, how it changed vs the prior
+observation, regime percentiles, the book's greeks, the no-arbitrage check, and the RV-vs-IV
+fair value (the same narrative the dashboard renders as cards).*
+
 ---
 
 ## What it's for
