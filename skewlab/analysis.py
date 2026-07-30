@@ -156,7 +156,9 @@ def metrics(snap, cs):
 def render_text(snap, cs):
     m = metrics(snap, cs)
     st = m['st']
-    L = ["=== BESPOKE ANALYSIS ===", f"WHAT'S GOING ON — {snap.symbol} {snap.date}, {snap.dte:.0f}DTE",
+    _notes = getattr(snap, "data_notes", None) or []
+    _banner = (["⚠ DATA AVAILABILITY: " + "  •  ".join(_notes)] if _notes else [])
+    L = _banner + ["=== BESPOKE ANALYSIS ===", f"WHAT'S GOING ON — {snap.symbol} {snap.date}, {snap.dte:.0f}DTE",
          (f"  ATF vol {m['atf']*100:.1f}%. Skew {m['skew_word']}: 1-SD RR {m['rr']:+.1f} pts "
           f"(down {m['v_dn']*100:.1f}% vs up {m['v_up']*100:.1f}%). smile {m['fly']:+.1f}"
           + (" -- both wings bid." if m['smile_bid'] else ".")),
@@ -244,6 +246,14 @@ def render_html(snap, cs):
     cards = [html.Div([html.Span(f"{snap.symbol} ", style={"fontSize": "20px", "fontWeight": 800}),
              html.Span(f"skew analysis · {snap.date} · {snap.dte:.0f} DTE",
                        style={"color": "#777", "fontSize": "13px"})], style={"marginBottom": "10px"})]
+
+    # data-availability banner (terminal down / symbol not covered / no prev overlay)
+    notes = getattr(snap, "data_notes", None) or []
+    if notes:
+        cards.append(card("⚠ Data availability", "#a15c00",
+                          html.Ul([html.Li(n, style={"marginBottom": "3px"}) for n in notes],
+                                  style={"margin": 0, "paddingLeft": "18px"}),
+                          [pill("some historical panels are hidden", "warn")]))
     badges = [pill(f"ATF vol {m['atf']*100:.1f}%", "info"),
               pill(f"skew {m['skew_word']} · {m['rr']:+.1f} RR", "warn" if "inverted" in m['skew_word'] else "info"),
               pill(f"smile {m['fly']:+.1f}", "neutral"),

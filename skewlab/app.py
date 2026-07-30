@@ -71,17 +71,27 @@ def build_app(snap):
                  dcc.Slider(id=iv_id(z), min=round(max(0.5, s - HALF), 2), max=round(s + HALF, 2),
                             step=0.1, value=s, marks=None,
                             tooltip={"placement": "bottom", "always_visible": True})]
+    # Wing controls apply to the POLYNOMIAL model only — SVI carries its own arbitrage-free
+    # wings, so under SVI these are disabled (and 'wings on' is held True purely so the plot
+    # range still extends past +/-3 SD to show SVI's own wings).
+    _is_svi = (getattr(cfg, "skew_model", "svi") == "svi")
+    _dis_lbl = {**_slbl, "color": "#94a3b8"} if _is_svi else _slbl
+    ctrl += [html.Div("Wing extrapolation", style=_grouplbl)]
+    if _is_svi:
+        ctrl += [html.Div("SVI extrapolates its own arbitrage-free wings; the manual wing "
+                          "controls apply to the polynomial model only.",
+                          style={"fontSize": "11px", "color": "#94a3b8", "marginBottom": "6px"})]
     ctrl += [
-        html.Div("Wing extrapolation", style=_grouplbl),
-        dcc.Checklist(id="wings", options=[{"label": " wings on", "value": "on"}],
-                      value=(["on"] if cfg.wings_on else []),
-                      style={"fontSize": "13px", "color": "#334155"}),
-        html.Div("slope L (vol pts / SD)", style=_slbl),
+        dcc.Checklist(id="wings",
+                      options=[{"label": " wings on", "value": "on", "disabled": _is_svi}],
+                      value=(["on"] if (cfg.wings_on or _is_svi) else []),
+                      style={"fontSize": "13px", "color": ("#94a3b8" if _is_svi else "#334155")}),
+        html.Div("slope L (vol pts / SD)", style=_dis_lbl),
         dcc.Slider(id="slope_l", min=-10, max=25, step=0.5, value=cfg.slope_left * 100, marks=None,
-                   tooltip={"placement": "bottom", "always_visible": True}),
-        html.Div("slope R (vol pts / SD)", style=_slbl),
+                   disabled=_is_svi, tooltip={"placement": "bottom", "always_visible": True}),
+        html.Div("slope R (vol pts / SD)", style=_dis_lbl),
         dcc.Slider(id="slope_r", min=-10, max=25, step=0.5, value=cfg.slope_right * 100, marks=None,
-                   tooltip={"placement": "bottom", "always_visible": True}),
+                   disabled=_is_svi, tooltip={"placement": "bottom", "always_visible": True}),
     ]
     controls = html.Div(ctrl, className="mt-card", style={
         "flex": "0 0 280px", "padding": "18px", "position": "sticky", "top": "16px",
@@ -129,7 +139,10 @@ def build_app(snap):
     ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center",
               "background": "#0f172a", "padding": "13px 24px"})
 
-    app = dash.Dash(__name__)
+    # suppress_callback_exceptions: some controls (e.g. the SVI-disabled wing sliders) and
+    # the vol-history section are created conditionally, so their callbacks may reference
+    # components not present in every layout.
+    app = dash.Dash(__name__, suppress_callback_exceptions=True)
     app.title = f"{snap.symbol} skew dashboard"
     app.index_string = """<!DOCTYPE html>
 <html><head>{%metas%}<title>{%title%}</title>{%favicon%}{%css%}
@@ -182,7 +195,7 @@ def build_app(snap):
         else:
             if is_reset or (not apply_clicks and not reset_clicks and not scenario):
                 iv_vals = [SEED[z] for z in z_grid]
-                wings_val = (["on"] if cfg.wings_on else [])
+                wings_val = (["on"] if (cfg.wings_on or _is_svi) else [])
                 sl_val, sr_val = cfg.slope_left * 100, cfg.slope_right * 100
                 slider_out = iv_vals + [wings_val, sl_val, sr_val]
             else:

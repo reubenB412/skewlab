@@ -104,6 +104,9 @@ class Snapshot:
     open_capture_ts: Optional[str] = None        # timestamp of that open capture
     now_straddle: Optional[float] = None         # market ATM straddle now ($)
     now_capture_ts: Optional[str] = None         # timestamp of the latest capture ('live' if open)
+    # human-readable data-availability warnings (terminal down / symbol not covered / no
+    # prev overlay). Surfaced in the console AND as a banner card on the dashboard.
+    data_notes: list = field(default_factory=list)
 
     # --- convenience wrappers (delegate to pure model funcs with this snapshot's grid) --
     @property
@@ -364,6 +367,18 @@ def _intraday_live(cfg, opd):
     return bool(cfg.use_intraday) and _us_market_open_now(opd)
 
 
+def _snapshot_is_stale(captured_ts, opd):
+    """True if a cached in-hours snapshot predates the last settled session, so it must NOT
+    stand in for 'today' (else a snapshot captured days ago is silently analysed as today).
+    Fails safe -> False (reuse) if either date can't be parsed."""
+    try:
+        cap = pd.to_datetime(captured_ts).normalize()
+        last = pd.to_datetime(str(getattr(opd, "last_trading_date"))).normalize()
+        return cap < last
+    except Exception:
+        return False
+
+
 def _fetch_yf_chain(cfg, cvt, opd, target_dte=None, reset=None):
     """One live yfinance pull, sliced to `target_dte`.
 
@@ -477,9 +492,15 @@ def _intraday_chain(cfg, cvt, opd, target_dte, reset=None):
         snap = _load_intraday_snapshot(cfg.symbol, target_dte)
         if snap is not None:
             ch, ts = snap
-            print(f"[fetch] market closed -> reusing in-hours yfinance snapshot for "
-                  f"{cfg.symbol} @{int(target_dte)}DTE (captured {ts}).")
-            return ch
+            if not getattr(cfg, "reuse_stale_intraday", False) and _snapshot_is_stale(ts, opd):
+                print(f"[fetch] market closed -> cached in-hours snapshot for {cfg.symbol} "
+                      f"@{int(target_dte)}DTE is STALE (captured {ts}, last settled session "
+                      f"{getattr(opd, 'last_trading_date', '?')}) -> using settled EOD instead. "
+                      f"(set reuse_stale_intraday=True to reuse it anyway)")
+            else:
+                print(f"[fetch] market closed -> reusing in-hours yfinance snapshot for "
+                      f"{cfg.symbol} @{int(target_dte)}DTE (captured {ts}).")
+                return ch
     return None
 
 
@@ -606,11 +627,39 @@ def _fetch_vix_panels(cfg, cvt, opd):
 # =====================================================================================
 # The one entry point that builds everything
 # =====================================================================================
+def _terminal_reachable(port=None, timeout=0.5):
+    """Fast TCP check that the ThetaData terminal is actually listening. Best-effort: any
+    failure (no FetchData, no port, refused) returns False. Used ONLY to explain WHY the
+    EOD-dependent panels are empty — never to gate fetching."""
+    import socket
+    if port is None:
+        try:
+            from FetchData import HTTP_PORT as port
+        except Exception:
+            port = 25511
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
 def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
     # normalise date (None -> today)
     if cfg.date is None:
         cfg.date = str(getattr(opd, "today_ny_strftime", None) or pd.Timestamp.today().strftime("%Y%m%d"))
     requested = cfg.date
+
+    # data-availability warnings collected through the run (terminal down / no coverage /
+    # no prev overlay). Surfaced in the console and as a dashboard banner. The terminal
+    # reachability probe is memoised so we open at most one socket per run.
+    data_notes = []
+    _term_cache = {}
+
+    def _term_up():
+        if "up" not in _term_cache:
+            _term_cache["up"] = _terminal_reachable()
+        return _term_cache["up"]
 
     chain = _fetch_today_chain(cfg, cvt, opd)
     spot, r, q, t, dte, atf, fwd = _core(chain, cfg.day_count)
@@ -645,10 +694,32 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
         prev_obs = pd.to_datetime(cfg.prev_date)
     elif cfg.pin_same_expiry and cfg.lookback_days:
         prev_obs = _nearest_trading_date(opd, pd.to_datetime(cfg.date) - pd.Timedelta(days=int(cfg.lookback_days)))
+    # Guard: prev must be a session STRICTLY BEFORE today's resolved obs date. On a weekend /
+    # holiday — or when COMPARE_TO_YESTERDAY pins prev to last_trading_date while "today"
+    # collapses to that same settled session — prev_obs can land ON (or after) today's obs,
+    # giving a degenerate identical overlay or a pin-strict drop (the classic 'None False').
+    # Step it back to the prior trading day so prev is always the session before today.
+    if prev_obs is not None:
+        _obs = pd.to_datetime(cfg.date).normalize()
+        if pd.to_datetime(prev_obs).normalize() >= _obs:
+            _td = pd.DatetimeIndex(opd.trading_dates).normalize()
+            _before = _td[_td < _obs]
+            if len(_before):
+                print(f"[prev] prev_obs {pd.to_datetime(prev_obs).date()} is not before obs "
+                      f"{_obs.date()}; stepping back to prior session {_before[-1].date()}.")
+                prev_obs = _before[-1]
+            else:
+                print(f"[prev] prev_obs {pd.to_datetime(prev_obs).date()} not before obs "
+                      f"{_obs.date()} and no earlier trading date available; dropping prev overlay.")
+                prev_obs = None
     chain_prev = prev_poly = prev_label = None
     prev_forward = prev_atf = None
     if prev_obs is not None:
         chain_prev, prev_obs = _fetch_prev_chain(cfg, cvt, opd, chain, prev_obs)
+        if chain_prev is None:
+            _why = ("the ThetaData terminal is unreachable (127.0.0.1)" if not _term_up()
+                    else f"no settled EOD chain is served for '{cfg.symbol}'")
+            data_notes.append(f"Previous-day overlay unavailable — {_why}.")
     if chain_prev is not None:
         today_exp = _chain_expiry(chain, cfg.date).date()
         prev_exp = _chain_expiry(chain_prev, prev_obs).date()
@@ -691,6 +762,20 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
             import traceback
             print("[iv-history] build_iv_panels raised -- continuing without history:")
             traceback.print_exc()
+        # A wide ALL-NaN panel (terminal down, or a root with no EOD greeks) has len()>0 so
+        # it slips past the n==0 check above and would render a confusing NaN vol-history.
+        # Treat "no non-NaN observations" as no history: say WHY, and hide the panels.
+        _valid = int(pd.Series(iv_atm).notna().sum()) if iv_atm is not None else 0
+        if _valid == 0:
+            if _term_up():
+                _msg = (f"IV-history & regime unavailable: the ThetaData terminal is up but "
+                        f"serves no EOD greeks for '{cfg.symbol}' (root not covered).")
+            else:
+                _msg = ("IV-history & regime unavailable: the ThetaData terminal is UNREACHABLE "
+                        "at 127.0.0.1 — start it and re-run. Live skew (yfinance) still works.")
+            print(f"[data] ⚠ {_msg}")
+            data_notes.append(_msg)
+            iv_atm = iv_history = None       # hide cleanly instead of an all-NaN frame
         if iv_atm is not None and len(iv_atm):
             try:
                 rvdf = cvt.get_composite_realised_volatility(
@@ -834,7 +919,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
         prev_forward=prev_forward, prev_atf=prev_atf,
         rv_iv=rv_iv, rv_straddle=rv_straddle, rv_asof=rv_asof, rv_lookback=rv_lookback,
         open_atf=open_atf, open_straddle=open_straddle, open_capture_ts=open_capture_ts,
-        now_straddle=now_straddle, now_capture_ts=now_capture_ts)
+        now_straddle=now_straddle, now_capture_ts=now_capture_ts, data_notes=data_notes)
 
     mkt_fine = snap.fine_strikes(cfg.wings_on)
     snap.mkt_curve_x = mkt_fine
@@ -843,4 +928,12 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
     calls = model.bs_call_vec(mkt_fine, snap.mkt_curve_y / 100.0, spot, t, r, q)
     pdf = model.implied_pdf(mkt_fine, calls, r, t)
     snap.mkt_pdf_x, snap.mkt_pdf_y = mkt_fine[2:-2], pdf[2:-2]
+
+    if data_notes:
+        print("[data] " + "=" * 66)
+        print(f"[data] DATA AVAILABILITY — {cfg.symbol}: {len(data_notes)} note(s) "
+              f"(terminal {'UP' if _term_cache.get('up') else 'DOWN/unknown'}). Shown on the dashboard.")
+        for _n in data_notes:
+            print(f"[data]   • {_n}")
+        print("[data] " + "=" * 66)
     return snap

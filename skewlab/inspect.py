@@ -138,6 +138,126 @@ def plot_vol_history(data):
     return num.plot(title="vol history")
 
 
+def diagnose_market_iv(snap, band_pct=0.06, jump_pts=1.0, verbose=True):
+    """Investigate the grey 'market IVs' scatter (``snap.market_iv``) and find what causes a
+    visual disconnect.
+
+    The plotted series is the OTM branch: put IV at strikes <= forward, call IV above, with
+    ``implied_vol`` backfilling any gaps (see model.market_iv_by_strike). A disconnect is
+    almost always one of:
+      • a PUT/CALL IV BASIS at the forward crossover -> a vertical step where the branch flips
+      • ``implied_vol`` BACKFILL sitting off the put/call branch -> a parallel offset strand
+      • DUPLICATE strikes -> two points at one strike
+      • a SYSTEMATIC OFFSET vs the fitted curve -> a scaling / day-count (T) mismatch
+
+    Returns a per-strike DataFrame; prints a summary when ``verbose``. Columns (vol %):
+    iv_put_%, iv_call_%, implied_vol_%, market_iv_% (what's plotted), source, side,
+    putcall_basis_pts (iv_put-iv_call), fitted_% (the fitted curve), resid_pts
+    (market_iv - fitted), jump_pts (strike-to-strike |Δ| of the plotted series).
+    """
+    ch = getattr(snap, "chain", None)
+    if ch is None or len(ch) == 0:
+        print("[iv-diag] no chain on this snapshot (nothing to investigate).")
+        return pd.DataFrame()
+    F = float(snap.forward)
+    df = ch.sort_index()
+    K = df.index.values.astype(float)
+    ivp = pd.to_numeric(df.get("iv_put"), errors="coerce")
+    ivc = pd.to_numeric(df.get("iv_call"), errors="coerce")
+    ivb = pd.to_numeric(df.get("implied_vol"), errors="coerce")
+
+    branch = np.where(K <= F, ivp.values, ivc.values)          # the where() OTM pick
+    source = np.where(K <= F, "put", "call").astype(object)
+    plotted = pd.Series(branch, index=df.index)
+    backfilled = plotted.isna() & ivb.notna()                   # combine_first(implied_vol)
+    plotted = plotted.where(~backfilled, ivb)
+    source = np.where(backfilled.values, "implied_vol", source)
+
+    # fitted market curve at each strike (what the blue line would say here)
+    fitted = np.full(len(df), np.nan)
+    try:
+        from .data import CurveState
+        fitted = np.asarray(snap.curve_vol(K, CurveState.market(snap)), float)
+    except Exception as e:
+        if verbose:
+            print(f"[iv-diag] (fitted-curve residual unavailable: {e})")
+
+    out = pd.DataFrame({
+        "iv_put_%": ivp.values * 100.0, "iv_call_%": ivc.values * 100.0,
+        "implied_vol_%": ivb.values * 100.0, "market_iv_%": plotted.values * 100.0,
+        "source": source, "side": np.where(K <= F, "<=F", ">F"),
+        "putcall_basis_pts": (ivp.values - ivc.values) * 100.0,
+        "fitted_%": fitted * 100.0,
+        "resid_pts": (plotted.values - fitted) * 100.0,
+    }, index=df.index)
+    out.index.name = "strike"
+    out["jump_pts"] = out["market_iv_%"].diff().abs()
+
+    dup = pd.Index(df.index[df.index.duplicated(keep=False)]).unique()
+    band = out[(out.index >= F * (1 - band_pct)) & (out.index <= F * (1 + band_pct))]
+    below, above = out[out.index <= F], out[out.index > F]
+    step = (float(above["market_iv_%"].iloc[0] - below["market_iv_%"].iloc[-1])
+            if len(below) and len(above) else float("nan"))
+    big = out[out["jump_pts"] > jump_pts]
+
+    if verbose:
+        print("\n" + "=" * 74)
+        print(f"[iv-diag] MARKET-IV DISCONNECT — {snap.symbol} {snap.date}  (forward {F:.2f})")
+        print("=" * 74)
+        print(f"  strikes: {len(df)}   plotted market-IV points: {int(out['market_iv_%'].notna().sum())}")
+        if len(band):
+            print(f"  put/call basis within ±{band_pct*100:.0f}% of fwd: mean {band['putcall_basis_pts'].mean():+.2f} pts, "
+                  f"max |{band['putcall_basis_pts'].abs().max():.2f}| pts")
+        print(f"  STEP across the forward crossover (put→call): {step:+.2f} vol pts"
+              + ("   <-- the disconnect" if np.isfinite(step) and abs(step) >= jump_pts else ""))
+        n_bf = int((out["source"] == "implied_vol").sum())
+        print(f"  implied_vol-backfilled strikes: {n_bf}"
+              + ("   (can sit off the put/call branch → a parallel offset strand)" if n_bf else ""))
+        print(f"  duplicate strikes: {len(dup)}"
+              + (f" → {list(dup)[:10]}" if len(dup) else ""))
+        rr = out["resid_pts"].dropna()
+        if len(rr):
+            print(f"  residual vs fitted curve: mean {rr.mean():+.2f} pts, std {rr.std():.2f} "
+                  f"(a large SYSTEMATIC mean ⇒ scaling / day-count T mismatch)")
+        if len(big):
+            print(f"  strike-to-strike jumps > {jump_pts} pts ({len(big)}) — likely disconnect points:")
+            with pd.option_context("display.max_rows", 15, "display.width", 160):
+                print(big[["market_iv_%", "source", "side", "putcall_basis_pts", "jump_pts"]].head(15).to_string())
+        else:
+            print(f"  no strike-to-strike jumps > {jump_pts} pts.")
+        print("=" * 74)
+    return out
+
+
+def plot_market_iv_diagnosis(snap, band_pct=0.06):
+    """Visualise the market-IV disconnect: iv_put (red) vs iv_call (blue) per strike, the
+    actually-plotted OTM series (grey), and the fitted curve (line), with the forward marked.
+    Makes a put/call basis, a backfill strand, or a systematic offset obvious at a glance."""
+    import matplotlib.pyplot as plt
+    d = diagnose_market_iv(snap, band_pct=band_pct, verbose=False)
+    if d is None or d.empty:
+        print("[iv-diag] nothing to plot.")
+        return None
+    F = float(snap.forward)
+    fig, ax = plt.subplots(figsize=(11, 5))
+    ax.scatter(d.index, d["iv_put_%"], s=14, c="#ef553b", alpha=0.7, label="iv_put")
+    ax.scatter(d.index, d["iv_call_%"], s=14, c="#2f6feb", alpha=0.7, label="iv_call")
+    ax.scatter(d.index, d["market_iv_%"], s=26, facecolors="none", edgecolors="#555",
+               label="market_iv (plotted, OTM branch)")
+    bf = d[d["source"] == "implied_vol"]
+    if len(bf):
+        ax.scatter(bf.index, bf["market_iv_%"], s=42, c="#f59e0b", marker="x",
+                   label="implied_vol backfill")
+    if d["fitted_%"].notna().any():
+        ax.plot(d.index, d["fitted_%"], color="#636efa", lw=2, label="fitted curve")
+    ax.axvline(F, color="green", ls=":", lw=1.2, label=f"forward {F:.1f}")
+    ax.set_title(f"{snap.symbol} {snap.date} — market-IV provenance (put vs call vs plotted)")
+    ax.set_xlabel("strike"); ax.set_ylabel("implied vol (%)")
+    ax.grid(alpha=0.3); ax.legend(loc="best", fontsize=8, ncol=2)
+    plt.tight_layout(); plt.show()
+    return d
+
+
 def rv_compare_frame(snap):
     """The RV-vs-IV scorecard as a 3-row DataFrame: the RV-implied fair value (from the
     most-recent-close composite realized vol) vs the market at the day's OPEN and NOW.

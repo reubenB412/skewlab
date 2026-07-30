@@ -236,11 +236,17 @@ def vol_at_strike(strike, poly):
 
 def curve_vol(strikes, poly, grid_strikes, forward, one_sd, z_grid,
               slope_left, slope_right, wings_on):
-    """Vol curve WITH wing extrapolation: polynomial inside +/-3 SD, a straight sloped
-    line beyond the end grid points (slope in vol-fraction per SD; >0 turns the wings up)."""
+    """Vol curve, evaluated on `strikes` (possibly beyond the +/-3 SD grid).
+
+    An SVI fit already carries its OWN arbitrage-free, linear-in-log-moneyness wings, so it is
+    evaluated directly everywhere and the manual wing sliders are ignored (no ±3-SD kink, no
+    re-introduced tail arbitrage). Only the POLYNOMIAL fit needs the straight-line wing
+    override past the end grid points (slope in vol-fraction per SD; >0 turns the wings up),
+    because a polynomial extrapolates to nonsense."""
     K = np.asarray(strikes, float)
     v = np.asarray(poly(K), float)
-    if wings_on:
+    is_svi = hasattr(poly, "svi_params")
+    if wings_on and not is_svi:
         kL, kR = grid_strikes[0], grid_strikes[-1]
         vL, vR = float(poly(kL)), float(poly(kR))
         z = (K - forward) / one_sd

@@ -45,6 +45,9 @@ class RunConfig:
     use_intraday: bool = False           # live yfinance "today" instead of settled EOD
     reset_intraday: bool = False         # force a fresh yfinance pull (reset_yf=True)
     intraday_cache: bool = True          # cache in-hours snapshots; reuse them when closed
+    reuse_stale_intraday: bool = False   # when closed, reuse a cached snapshot even if it
+                                         # predates the last settled session (True = old
+                                         # behaviour; False = fall through to settled EOD)
 
     # --- IV history / regime ---
     use_iv_history: bool = True
