@@ -11,6 +11,12 @@ in an interactive Dash app.
 > **Runs offline.** This public demo uses a deterministic synthetic adapter: no network,
 > credentials, market-data terminal, or local portfolio files are read.
 
+![SPY skew analysis summary](docs/analysis_summary_demo.png)
+
+*The written read that ties the panels together: what's going on, how it changed vs the prior
+observation, regime percentiles, the book's greeks, the no-arbitrage check, and the RV-vs-IV
+fair value. The dashboard renders the same narrative as cards.*
+
 ![SPY skew curve, offline demo run](docs/skew_curve_demo.png)
 
 *The skew panel from the offline demo (`python skewlab.py`, no credentials): a raw-SVI fit
@@ -28,6 +34,18 @@ log-normal sheet. It is left-skewed, with the mode above the forward and a fatte
 tail. The density stays non-negative everywhere, so the smile passes the butterfly no-arbitrage
 check.*
 
+![SPY realised-vol regime and RV/IV term structure](docs/rv_term_structure_demo.png)
+
+*The new three-layer RV section: comparable implied-versus-realised daily movement, transparent
+front-end shape percentiles and regime classification, the current estimator table, and the
+5–180-session backward RV curve against 10–180-day forward ATM IV. The demo deliberately ends
+in a compressed front-end RV regime; its incomplete final session is excluded.*
+
+![SPY IV history & regime](docs/iv_history_regime_demo.png)
+
+*The 2×2 regime panel: ATM implied vs realized (carry / VRP), the ATM-vol regime and its
+percentile, 25Δ/10Δ risk-reversal over time, and today's vol-vs-skew position vs its own history.*
+
 ![SPY implied-vol history vs composite realized](docs/vol_history_demo.png)
 
 *Implied-vol history buckets (ATM, 25Δ/10Δ) against the composite realized-vol estimate. This
@@ -38,17 +56,6 @@ is the implied-vs-realized comparison behind the variance-risk-premium read.*
 *The composite realized-vol estimator stack (C-C, Parkinson, Hodges–Tompkins, Yang–Zhang,
 EWMA half-life, GARCH) with the blended Mean. That Mean is the RV input to the fair-value and
 VRP reads.*
-
-![SPY IV history & regime](docs/iv_history_regime_demo.png)
-
-*The 2×2 regime panel: ATM implied vs realized (carry / VRP), the ATM-vol regime and its
-percentile, 25Δ/10Δ risk-reversal over time, and today's vol-vs-skew position vs its own history.*
-
-![SPY skew analysis summary](docs/analysis_summary_demo.png)
-
-*The written read that ties the panels together: what's going on, how it changed vs the prior
-observation, regime percentiles, the book's greeks, the no-arbitrage check, and the RV-vs-IV
-fair value. The dashboard renders the same narrative as cards.*
 
 ---
 
