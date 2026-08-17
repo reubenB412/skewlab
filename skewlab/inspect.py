@@ -318,6 +318,18 @@ def collect_run_data(snap):
         }).assign(expiry=str(getattr(b, "expiry", "")), dte=getattr(b, "dte", None),
                   ATF_vol_pct=getattr(b, "atf", float("nan")) * 100.0)
 
+    rv_term = getattr(snap, "rv_term", None)
+    rt_table = pd.DataFrame() if rv_term is None else rv_term.estimator_table
+    rt_integrated = pd.DataFrame() if rv_term is None else rv_term.integrated_variance_table
+    rt_iv = pd.DataFrame() if rv_term is None else rv_term.iv_curve
+    rt_daily = pd.DataFrame() if rv_term is None else rv_term.hf_daily
+    rt_shape = pd.DataFrame() if rv_term is None else rv_term.shape_history
+    rt_shares = pd.DataFrame() if rv_term is None else rv_term.variance_shares
+    rt_signature = pd.DataFrame() if rv_term is None else rv_term.volatility_signature
+    rt_summary = {} if rv_term is None else dict(rv_term.summary)
+    rt_meta = {} if rv_term is None else {
+        **dict(rv_term.metadata), "warnings": " | ".join(rv_term.warnings) or "none"}
+
     return {
         "scalars":        scalars,
         "grid":           grid,
@@ -333,8 +345,208 @@ def collect_run_data(snap):
         "vix_vvix_ratio": snap.vix_vvix_ratio,
         "term":           term,
         "rv_compare":     rv_compare_frame(snap),
+        "rv_estimators":  getattr(snap, "rv_estimators", None),
+        "rv_term_summary": rt_summary,
+        "rv_term_table":   rt_table,
+        "rv_term_integrated_variance": rt_integrated,
+        "rv_term_iv":      rt_iv,
+        "rv_term_hf_daily": rt_daily,
+        "rv_term_shape":   rt_shape,
+        "rv_term_shares":  rt_shares,
+        "rv_term_signature": rt_signature,
+        "rv_term_metadata": rt_meta,
         "positions":      snap.positions,
     }
+
+
+def _llm_csv(title, obj, max_rows=None):
+    """Render a Series/DataFrame as a compact fenced CSV block for an LLM prompt."""
+    if obj is None:
+        return f"### {title}\n\nUnavailable."
+    if isinstance(obj, pd.Series):
+        obj = obj.rename(obj.name or "value").to_frame()
+    if not isinstance(obj, pd.DataFrame) or obj.empty:
+        return f"### {title}\n\nUnavailable."
+    out = obj.tail(int(max_rows)) if max_rows is not None else obj
+    return f"### {title}\n\n```csv\n{out.to_csv(float_format='%.6g').strip()}\n```"
+
+
+def _near_forward_quotes(snap, rows=15):
+    """Return a small quote sample around the forward instead of the full raw chain."""
+    chain = getattr(snap, "chain", None)
+    if chain is None or getattr(chain, "empty", True):
+        return pd.DataFrame()
+    df = chain.copy()
+    strikes = pd.to_numeric(pd.Series(df.index, index=df.index), errors="coerce")
+    df = df.assign(_distance=(strikes - float(snap.forward)).abs().values)
+    df = df.sort_values("_distance").head(max(int(rows), 1)).sort_index()
+    wanted = [
+        "expiration", "dte", "mid_call", "mid_put", "straddle", "implied_vol",
+        "iv_put", "iv_call", "delta_p", "delta_c", "oi_put", "oi_call",
+        "v_put", "v_call", "S", "R", "Q", "_distance",
+    ]
+    out = df[[c for c in wanted if c in df.columns]].copy()
+    for col in ("implied_vol", "iv_put", "iv_call", "R", "Q"):
+        if col in out:
+            out[col] = pd.to_numeric(out[col], errors="coerce") * 100.0
+            out = out.rename(columns={col: col + "_%"})
+    out.index.name = "strike"
+    return out
+
+
+def print_llm_context(snap, history_rows=20, chain_rows=15):
+    """Print a compact, paste-ready Markdown/CSV briefing from the canonical snapshot.
+
+    This export is independent of Dash and contains no vendor credentials or private
+    data access. Large frames are reduced to useful recent windows and near-forward
+    quotes. Missing sections are labelled rather than fabricated.
+    """
+    from . import analysis
+    from .data import CurveState
+
+    history_rows = max(int(history_rows), 1)
+    chain_rows = max(int(chain_rows), 1)
+    cs = CurveState.market(snap)
+    metrics = analysis.metrics(snap, cs)
+    data = collect_run_data(snap)
+    st = metrics["st"]
+    current = pd.Series({
+        "symbol": snap.symbol,
+        "observation_date": snap.date,
+        "requested_date": snap.requested_date,
+        "expiry_dte": snap.dte,
+        "spot": snap.spot,
+        "forward": snap.forward,
+        "one_sd_points": snap.one_sd,
+        "atf_iv_%": metrics["atf"] * 100.0,
+        "down_1sd_iv_%": metrics["v_dn"] * 100.0,
+        "up_1sd_iv_%": metrics["v_up"] * 100.0,
+        "one_sd_rr_put_minus_call_pts": metrics["rr"],
+        "one_sd_fly_pts": metrics["fly"],
+        "probability_above_forward_%": metrics["p_above"],
+        "distribution_mean": st["mean"],
+        "distribution_median": st["median"],
+        "distribution_mode": st["mode"],
+        "distribution_std_points": st["std"],
+        "distribution_skew": st["skew"],
+        "distribution_excess_kurtosis": st["kurt"],
+        "risk_free_rate_%": snap.r * 100.0,
+        "dividend_yield_%": snap.q * 100.0,
+        "skew_model": snap.cfg.skew_model,
+    }, name="value")
+
+    sections = [
+        f"# SKEWLAB LLM CONTEXT — {snap.symbol} — {snap.date}",
+        """## Analysis request
+
+Use the evidence below to explain the current volatility and skew state; changes versus
+the previous observation; implied-versus-realized relative value; the distribution, term
+structure and convexity indicators; and conditional structures, risks, and invalidation
+conditions. Separate observed facts from inference. Do not invent missing data, catalysts,
+prices, fills, or forecasts. Flag stale or missing data and arbitrage warnings first. This
+is scenario analysis, not personalized financial advice.""",
+        "## Existing skewlab narrative\n\n```text\n" + analysis.render_text(snap, cs) + "\n```",
+        _llm_csv("Current market and fitted-distribution metrics", current),
+    ]
+
+    notes = list(getattr(snap, "data_notes", None) or [])
+    complete = data["rv_term_hf_daily"].get(
+        "is_complete_session", pd.Series(dtype=bool))
+    iv_values = data["rv_term_iv"].get("atf_iv", pd.Series(dtype=float))
+    coverage = pd.Series({
+        "data_notes": " | ".join(notes) if notes else "none",
+        "current_chain_rows": 0 if data["chain"] is None else len(data["chain"]),
+        "previous_chain_rows": 0 if data["chain_prev"] is None else len(data["chain_prev"]),
+        "iv_history_rows": len(data["iv_panel"]),
+        "rv_estimator_rows": 0 if data["rv_estimators"] is None else len(data["rv_estimators"]),
+        "rv_term_hf_completed_sessions": int(complete.sum()),
+        "rv_term_iv_tenors": int(iv_values.notna().sum()),
+        "term_tenors_available": len(snap.term_bundles or []),
+        "has_previous_fit": snap.prev_poly is not None,
+        "has_positions": snap.has_positions,
+    }, name="value")
+    sections.append(_llm_csv("Data coverage and caveats", coverage))
+
+    change = metrics.get("change")
+    if change:
+        sections.append(_llm_csv("Change versus previous observation", pd.Series({
+            "previous_label": snap.prev_label,
+            "previous_atf_iv_%": change["v_atf_p"] * 100.0,
+            "current_atf_iv_%": change["v_atf"] * 100.0,
+            "atf_change_pts": change["d_atf"],
+            "previous_1sd_rr_pts": change["rr_p"],
+            "current_1sd_rr_pts": change["rr"],
+            "rr_change_pts": change["d_rr"],
+            "previous_distribution_skew": change["st_p_skew"],
+            "current_distribution_skew": change["st_skew"],
+            "previous_distribution_std": change["std_p"],
+            "current_distribution_std": change["std"],
+            "rule_based_note": change["note"] or "none",
+        }, name="value")))
+
+    for key, title in (
+        ("regime", "Historical IV and skew regime"),
+        ("rv", "Implied versus realized and open-to-now"),
+    ):
+        value = metrics.get(key)
+        if value:
+            sections.append(_llm_csv(title, pd.Series(value, name="value")))
+
+    if data["rv_term_summary"]:
+        sections.extend([
+            _llm_csv("HF realised-vol regime and daily-movement summary",
+                     pd.Series(data["rv_term_summary"], name="value")),
+            _llm_csv("RV term-structure source metadata and warnings",
+                     pd.Series(data["rv_term_metadata"], name="value")),
+            _llm_csv("Current RV estimator term structure", data["rv_term_table"]),
+            _llm_csv("Backward RV integrated variance", data["rv_term_integrated_variance"]),
+            _llm_csv("Forward ATM IV curve", data["rv_term_iv"]),
+            _llm_csv("Current HF variance-composition shares", data["rv_term_shares"]),
+        ])
+        if not data["rv_term_signature"].empty:
+            sections.append(_llm_csv("HF volatility-signature diagnostic",
+                                     data["rv_term_signature"]))
+        sections.append(_llm_csv(
+            f"Recent HF RV curve-shape history (last {history_rows})",
+            data["rv_term_shape"], max_rows=history_rows))
+
+    noarb = metrics["noarb"]
+    noarb_rows = {"overall_clean": noarb["ok"]}
+    noarb_rows.update({f"butterfly_{k}": v for k, v in noarb["butterfly"].items()})
+    if noarb["calendar"] is not None:
+        noarb_rows.update({f"calendar_{k}": v for k, v in noarb["calendar"].items()})
+    sections.append(_llm_csv("No-arbitrage diagnostics", pd.Series(noarb_rows, name="value")))
+
+    term_rows = [{
+        "requested_tenor": b.tenor, "actual_dte": b.dte, "expiry": b.expiry,
+        "monthly": b.monthly, "forward": b.forward, "atf_iv_%": b.atf * 100.0,
+        "total_atf_variance": b.atf * b.atf * b.t,
+    } for b in (snap.term_bundles or [])]
+    sections.extend([
+        _llm_csv("Available term structure", pd.DataFrame(term_rows)),
+        _llm_csv("Fitted skew nodes", data["grid"]),
+    ])
+
+    if metrics.get("position"):
+        pos = metrics["position"]
+        net = {k: v for k, v in pos["net"].items() if k != "rows"}
+        net.update({"delta_direction": pos["dpos"], "gamma_direction": pos["gpos"],
+                    "vega_direction": pos["vpos"]})
+        sections.append(_llm_csv("Position net Greeks and premium", pd.Series(net, name="value")))
+        sections.append(_llm_csv("Position legs", pd.DataFrame(
+            snap.positions or [], columns=["strike", "type", "contracts"])))
+
+    sections.extend([
+        _llm_csv(f"Recent IV/RV and skew history (last {history_rows})",
+                 data["iv_panel"], max_rows=history_rows),
+        _llm_csv(f"Recent realized-vol estimator stack (last {history_rows})",
+                 data["rv_estimators"], max_rows=history_rows),
+        _llm_csv(f"Recent VVIX/VIX regime (last {history_rows})",
+                 data["vix_vvix_ratio"], max_rows=history_rows),
+        _llm_csv(f"Current option quotes nearest forward ({chain_rows} strikes)",
+                 _near_forward_quotes(snap, chain_rows)),
+    ])
+    print("\n\n".join(sections).rstrip() + "\n")
 
 
 def describe_run_data(d):

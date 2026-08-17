@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from . import model
+from . import rv as rv_model
 
 
 # =====================================================================================
@@ -78,6 +79,7 @@ class Snapshot:
     iv_history: Optional[pd.DataFrame] = None
     iv_rv: Optional[pd.Series] = None
     rv_estimators: Optional[pd.DataFrame] = None   # full composite-RV estimator frame (all cols)
+    rv_term: Optional[rv_model.RVTermState] = None
     # VIX / VVIX empirical panels: (df, current_close, current_bin) tuples + ratio table
     vix_dist: Optional[tuple] = None            # full history
     vvix_dist: Optional[tuple] = None           # full history
@@ -367,6 +369,15 @@ def _intraday_live(cfg, opd):
     return bool(cfg.use_intraday) and _us_market_open_now(opd)
 
 
+def _current_chain(result):
+    """Normalise a backend that returns either a chain or ``(current, previous)``."""
+    if isinstance(result, tuple):
+        if not result:
+            raise RuntimeError("intraday option-chain fetch returned an empty tuple")
+        return result[0]
+    return result
+
+
 def _snapshot_is_stale(captured_ts, opd):
     """True if a cached in-hours snapshot predates the last settled session, so it must NOT
     stand in for 'today' (else a snapshot captured days ago is silently analysed as today).
@@ -387,9 +398,10 @@ def _fetch_yf_chain(cfg, cvt, opd, target_dte=None, reset=None):
     that was just written to the per-day pkl (one download per run, not one per tenor)."""
     tdte = _request_target_dte(cfg, cfg.date, cfg.target_dte) if target_dte is None else target_dte
     reset_yf = cfg.reset_intraday if reset is None else reset
-    return cvt.get_quick_option_chain(
+    result = cvt.get_quick_option_chain(
         cfg.symbol, cfg.date, None, target_dte=tdte,
         size=cfg.size, intraday=True, reset_yf=reset_yf, verbose=False)
+    return _current_chain(result)
 
 
 # --- in-hours yfinance snapshot cache ----------------------------------------------
@@ -458,7 +470,7 @@ def _load_intraday_snapshot(symbol, target_dte):
     if d is None:
         return None
     latest = d.get("latest") or {}
-    ch = latest.get("chain")
+    ch = _current_chain(latest.get("chain"))
     if ch is None or len(ch) == 0:
         return None
     return ch, latest.get("captured", "?")
@@ -471,7 +483,7 @@ def _load_open_snapshot(symbol, target_dte):
     if d is None:
         return None
     op = d.get("open") or {}
-    ch = op.get("chain")
+    ch = _current_chain(op.get("chain"))
     if ch is None or len(ch) == 0:
         return None
     return ch, op.get("captured", "?"), d.get("day")
@@ -525,12 +537,7 @@ def _fetch_eod_walkback(cfg, cvt, opd):
 
 
 def _fetch_today_chain(cfg, cvt, opd):
-    """Source the 'today' chain when use_intraday:
-        1. market OPEN  -> live yfinance (and cache the snapshot),
-        2. market CLOSED -> reuse the most recent in-hours yfinance snapshot,
-        3. else settled ThetaData EOD (walk-back),
-        4. else a fresh (possibly thin) yfinance pull as a last resort.
-    With use_intraday=False it's settled EOD only."""
+    """Source the current chain from an injected adapter, with cache-aware fallbacks."""
     if not cfg.use_intraday:
         return _fetch_eod_walkback(cfg, cvt, opd)
 
@@ -624,42 +631,234 @@ def _fetch_vix_panels(cfg, cvt, opd):
     return vix_full, vvix_full, vix_since, vvix_since, ratio
 
 
+def _hf_session_metadata(intraday, rv_index, opd, sample_minutes):
+    """Completion flags and final timestamps for a per-session HF output."""
+    dates = pd.DatetimeIndex(pd.to_datetime(rv_index)).tz_localize(None).normalize()
+    flags = pd.Series(False, index=dates, dtype=bool)
+    stamps = pd.Series(pd.NaT, index=dates, dtype=object)
+    try:
+        today = pd.to_datetime(str(getattr(opd, "today_ny_strftime"))).normalize()
+    except Exception:
+        today = pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize()
+    flags.loc[dates < today] = True
+    if intraday is None or getattr(intraday, "empty", True):
+        return flags, stamps
+
+    idx = pd.DatetimeIndex(intraday.index)
+    if idx.tz is not None:
+        idx = idx.tz_convert("America/New_York")
+        naive_dates = idx.tz_localize(None).normalize()
+    else:
+        naive_dates = idx.normalize()
+    meta = pd.DataFrame({"timestamp": list(idx), "date": naive_dates})
+    grouped = meta.groupby("date")["timestamp"].agg(["max", "count"])
+    full_floor = max(int(390 / max(int(sample_minutes), 1)) - 2, 1)
+    for date, row in grouped.iterrows():
+        d = pd.Timestamp(date).normalize()
+        if d not in flags.index:
+            continue
+        stamps.loc[d] = row["max"]
+        if d == today:
+            last = pd.Timestamp(row["max"])
+            flags.loc[d] = last.time() >= _dt.time(16, 0) and int(row["count"]) >= full_floor
+    return flags, stamps
+
+
+def _fetch_rv_iv_curve(cfg, cvt, opd, term_bundles):
+    """Current ATF IV term structure from actual backend option chains."""
+    rows, warnings = [], []
+    existing = {int(b.tenor): b for b in (term_bundles or [])}
+    for requested in tuple(dict.fromkeys(int(x) for x in cfg.rv_iv_tenors)):
+        try:
+            if requested in existing:
+                b = existing[requested]
+                actual_dte, expiry, atf = float(b.dte), pd.Timestamp(b.expiry), float(b.atf)
+            else:
+                tc = (_intraday_chain(cfg, cvt, opd, requested, reset=False)
+                      if cfg.use_intraday else None)
+                if tc is None:
+                    tc = cvt.get_quick_option_chain(
+                        cfg.symbol, cfg.date, None, target_dte=requested,
+                        size=cfg.size, verbose=False)
+                tc = _current_chain(tc)
+                _, _, _, _, actual_dte, atf, _ = _core(tc, cfg.day_count)
+                expiry = _chain_expiry(tc, cfg.date)
+            rows.append({
+                "requested_tenor": requested,
+                "actual_dte": float(actual_dte),
+                "expiry": pd.Timestamp(expiry),
+                "atf_iv": float(atf),
+                "calendar_year_fraction": float(actual_dte) / float(cfg.day_count),
+                "integrated_variance": float(atf) ** 2 * float(actual_dte) / float(cfg.day_count),
+            })
+        except Exception as exc:
+            rows.append({
+                "requested_tenor": requested, "actual_dte": np.nan,
+                "expiry": pd.NaT, "atf_iv": np.nan,
+                "calendar_year_fraction": np.nan, "integrated_variance": np.nan,
+            })
+            warnings.append(f"IV {requested}D tenor unavailable: {exc}")
+    curve = pd.DataFrame(rows).set_index("requested_tenor") if rows else pd.DataFrame()
+    return curve, warnings
+
+
+def _fetch_rv_source(cfg, cvt, opd, symbol, official_daily):
+    """Read the documented, vendor-neutral RV source seam from the injected adapter."""
+    del opd
+    if not hasattr(cvt, "get_rv_term_source"):
+        raise TypeError("backend does not implement get_rv_term_source")
+    source = cvt.get_rv_term_source(
+        symbol,
+        lookback_months=int(cfg.rv_hf_lookback_months),
+        source_basis=float(cfg.rv_hf_source_basis),
+        sample_minutes=int(cfg.rv_hf_sample_minutes),
+        daily_ohlc=official_daily,
+        load_current=bool(cfg.rv_hf_load_current),
+    )
+    if not isinstance(source, dict) or "rvdf" not in source:
+        raise ValueError("get_rv_term_source must return a dict containing 'rvdf'")
+    return source
+
+
+def _fetch_rv_term_state(cfg, cvt, opd, spot, atf, term_bundles):
+    """Build the RV regime/table/IV state from the injected backend."""
+    if not getattr(cfg, "show_rv_term_structure", True):
+        return None
+
+    warnings = []
+    lookbacks = tuple(dict.fromkeys(int(x) for x in cfg.rv_lookbacks))
+    hf_curves = rv_model.empty_hf_curves(lookbacks)
+    hf_daily = pd.DataFrame()
+    shape_history = pd.DataFrame()
+    movement = {
+        "implied_daily_sigma_pct": np.nan,
+        "implied_expected_abs_pct": np.nan,
+        "implied_expected_abs_points": np.nan,
+        "realised_average_abs_pct": np.nan,
+        "realised_average_abs_points": np.nan,
+        "movement_gap_points": np.nan,
+    }
+    signature = pd.DataFrame()
+    source = {}
+
+    proxy_map = {str(k).upper(): str(v) for k, v in cfg.rv_hf_symbol_proxies.items()}
+    hf_symbol = proxy_map.get(str(cfg.symbol).upper(), cfg.symbol)
+    if str(hf_symbol).upper() != str(cfg.symbol).upper():
+        warnings.append(f"HF realised variance proxied from {cfg.symbol} to {hf_symbol}.")
+
+    official_daily = None
+    try:
+        official_daily = opd.get_ohlcv_from_symbol(hf_symbol).copy()
+        official_daily.index = pd.DatetimeIndex(pd.to_datetime(official_daily.index)).tz_localize(None)
+        official_daily = official_daily.loc[:pd.to_datetime(cfg.date)]
+        close_col = "Close" if "Close" in official_daily else "close"
+        movement = rv_model.movement_summary(
+            atf, spot, official_daily[close_col],
+            trading_year=float(cfg.rv_hf_target_basis), realised_sessions=5,
+        )
+    except Exception as exc:
+        warnings.append(f"Daily OHLC unavailable for RV section: {exc}")
+
+    try:
+        source = _fetch_rv_source(cfg, cvt, opd, hf_symbol, official_daily)
+        rvdf = source["rvdf"].copy()
+        rvdf = rvdf.loc[:pd.to_datetime(cfg.date).date()]
+        complete = source.get("complete_flags")
+        stamps = source.get("asof_timestamps")
+        if complete is None or stamps is None:
+            complete, stamps = _hf_session_metadata(
+                source.get("intraday"), rvdf.index, opd, cfg.rv_hf_sample_minutes
+            )
+        signature = source.get("volatility_signature", pd.DataFrame()).copy()
+        hf_daily = rv_model.recover_daily_variances(
+            rvdf, source_basis=float(cfg.rv_hf_source_basis),
+            complete_flags=complete, asof_timestamps=stamps,
+            sample_minutes=int(cfg.rv_hf_sample_minutes),
+        )
+        hf_curves = rv_model.aggregate_hf_curves(
+            hf_daily, lookbacks, target_basis=float(cfg.rv_hf_target_basis)
+        )
+        if {5, 10, 20, 30}.issubset(hf_curves.total.columns):
+            shape_history = rv_model.rv_shape_history(
+                hf_curves.total,
+                percentile_window=int(cfg.rv_percentile_window),
+                percentile_min_periods=int(cfg.rv_percentile_min_periods),
+            )
+        n_complete = int(hf_daily["is_complete_session"].sum()) if len(hf_daily) else 0
+        if lookbacks and n_complete < max(lookbacks):
+            warnings.append(
+                f"HF history has {n_complete} completed sessions; {max(lookbacks)} required "
+                "for the longest curve. Missing cells are shown as em dashes."
+            )
+    except Exception as exc:
+        warnings.append(f"HF realised variance unavailable ({exc}); HF rows and regime are hidden.")
+
+    estimator_frames = {}
+    if official_daily is not None and not official_daily.empty:
+        for n in lookbacks:
+            try:
+                estimator_frames[n] = cvt.get_composite_realised_volatility(
+                    hf_symbol, lookback=n, price_data=official_daily,
+                    tenor=float(cfg.rv_hf_target_basis), start=None, end=None,
+                    enable_garch=False, cache=False, verbose=False,
+                )
+            except Exception as exc:
+                warnings.append(f"Composite RV {n}D unavailable: {exc}")
+    table = rv_model.build_estimator_table(estimator_frames, lookbacks, hf_curves=hf_curves)
+    integrated = rv_model.integrated_variance_table(
+        table, annualisation_basis=float(cfg.rv_hf_target_basis)
+    )
+    shares = rv_model.latest_variance_shares(hf_curves)
+    summary = rv_model.build_summary(
+        shape_history=shape_history, movement=movement, hf_curves=hf_curves,
+        compressed_threshold=float(cfg.rv_compressed_threshold),
+        inverted_threshold=float(cfg.rv_inverted_threshold),
+        building_percentile=float(cfg.rv_building_percentile),
+    )
+    iv_curve, iv_warnings = _fetch_rv_iv_curve(cfg, cvt, opd, term_bundles)
+    warnings.extend(iv_warnings)
+
+    state = rv_model.RVTermState(
+        estimator_table=table, integrated_variance_table=integrated,
+        hf_daily=hf_daily, hf_curves=hf_curves,
+        shape_history=shape_history, summary=summary, iv_curve=iv_curve,
+        variance_shares=shares,
+        metadata={
+            "source": str(source.get("source", "injected RV adapter")),
+            "hf_symbol": hf_symbol,
+            "source_basis": float(cfg.rv_hf_source_basis),
+            "target_basis": float(cfg.rv_hf_target_basis),
+            "sample_minutes": int(cfg.rv_hf_sample_minutes),
+            "lookback_months": int(cfg.rv_hf_lookback_months),
+            "load_current": bool(cfg.rv_hf_load_current),
+            "percentile_method": (
+                f"trailing {int(cfg.rv_percentile_window)} sessions, minimum "
+                f"{int(cfg.rv_percentile_min_periods)}, current observation included"
+            ),
+        },
+        warnings=tuple(dict.fromkeys(str(x) for x in warnings)),
+        volatility_signature=signature,
+    )
+    n_hf = int(hf_daily["is_complete_session"].sum()) if len(hf_daily) else 0
+    n_iv = int(iv_curve["atf_iv"].notna().sum()) if "atf_iv" in iv_curve else 0
+    print(f"[rv-term] {summary.get('regime', 'unavailable')} · "
+          f"{n_hf} completed HF sessions · {n_iv} IV tenors")
+    for note in state.warnings:
+        print(f"[rv-term] ⚠ {note}")
+    return state
+
+
 # =====================================================================================
 # The one entry point that builds everything
 # =====================================================================================
-def _terminal_reachable(port=None, timeout=0.5):
-    """Fast TCP check that the ThetaData terminal is actually listening. Best-effort: any
-    failure (no FetchData, no port, refused) returns False. Used ONLY to explain WHY the
-    EOD-dependent panels are empty — never to gate fetching."""
-    import socket
-    if port is None:
-        try:
-            from FetchData import HTTP_PORT as port
-        except Exception:
-            port = 25511
-    try:
-        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
-            return True
-    except Exception:
-        return False
-
-
 def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
     # normalise date (None -> today)
     if cfg.date is None:
         cfg.date = str(getattr(opd, "today_ny_strftime", None) or pd.Timestamp.today().strftime("%Y%m%d"))
     requested = cfg.date
 
-    # data-availability warnings collected through the run (terminal down / no coverage /
-    # no prev overlay). Surfaced in the console and as a dashboard banner. The terminal
-    # reachability probe is memoised so we open at most one socket per run.
+    # Data-availability warnings are surfaced in the console and dashboard.
     data_notes = []
-    _term_cache = {}
-
-    def _term_up():
-        if "up" not in _term_cache:
-            _term_cache["up"] = _terminal_reachable()
-        return _term_cache["up"]
 
     chain = _fetch_today_chain(cfg, cvt, opd)
     spot, r, q, t, dte, atf, fwd = _core(chain, cfg.day_count)
@@ -717,9 +916,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
     if prev_obs is not None:
         chain_prev, prev_obs = _fetch_prev_chain(cfg, cvt, opd, chain, prev_obs)
         if chain_prev is None:
-            _why = ("the ThetaData terminal is unreachable (127.0.0.1)" if not _term_up()
-                    else f"no settled EOD chain is served for '{cfg.symbol}'")
-            data_notes.append(f"Previous-day overlay unavailable — {_why}.")
+            data_notes.append(f"Previous-day overlay unavailable for '{cfg.symbol}'.")
     if chain_prev is not None:
         today_exp = _chain_expiry(chain, cfg.date).date()
         prev_exp = _chain_expiry(chain_prev, prev_obs).date()
@@ -742,12 +939,16 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
     # --- IV history + realized vol ---
     iv_atm = iv_history = iv_rv = None
     rv_estimators = None
+    iv_dte = int(getattr(cfg, "iv_hist_target_dte", None) or cfg.target_dte)
     if cfg.use_iv_history:
+        if iv_dte != int(cfg.target_dte):
+            print(f"[iv-history] panel pinned to {iv_dte}DTE "
+                  f"(live target_dte={int(cfg.target_dte)})")
         print("[iv-history] building panels (this can take a while)...")
         try:
             iv_atm, iv_history = opd.build_iv_panels(
                 symbol=cfg.symbol, start=cfg.iv_hist_start, end=(cfg.iv_hist_end or cfg.date),
-                target_dte=cfg.target_dte, reset=cfg.iv_hist_reset,
+                target_dte=iv_dte, reset=cfg.iv_hist_reset,
                 n_workers=getattr(cfg, "iv_hist_workers", 8), verbose=True)
             n = 0 if iv_atm is None else len(iv_atm)
             print(f"[iv-history] loaded {n} obs")
@@ -767,19 +968,14 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
         # Treat "no non-NaN observations" as no history: say WHY, and hide the panels.
         _valid = int(pd.Series(iv_atm).notna().sum()) if iv_atm is not None else 0
         if _valid == 0:
-            if _term_up():
-                _msg = (f"IV-history & regime unavailable: the ThetaData terminal is up but "
-                        f"serves no EOD greeks for '{cfg.symbol}' (root not covered).")
-            else:
-                _msg = ("IV-history & regime unavailable: the ThetaData terminal is UNREACHABLE "
-                        "at 127.0.0.1 — start it and re-run. Live skew (yfinance) still works.")
+            _msg = f"IV-history & regime unavailable: the adapter returned no observations for '{cfg.symbol}'."
             print(f"[data] ⚠ {_msg}")
             data_notes.append(_msg)
             iv_atm = iv_history = None       # hide cleanly instead of an all-NaN frame
         if iv_atm is not None and len(iv_atm):
             try:
                 rvdf = cvt.get_composite_realised_volatility(
-                    cfg.symbol, lookback=model.trading_days_for_dte(cfg.target_dte),
+                    cfg.symbol, lookback=model.trading_days_for_dte(iv_dte),
                     start=str(pd.DatetimeIndex(iv_atm.index).min().date()), end=str(cfg.date), verbose=False)
                 if rvdf is not None and "Mean" in getattr(rvdf, "columns", []):
                     iv_rv = rvdf["Mean"].astype(float)
@@ -800,6 +996,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
                 if tc is None:                    # closed w/ no snapshot, or use_intraday=False
                     tc = cvt.get_quick_option_chain(cfg.symbol, cfg.date, None, target_dte=tdte,
                                                     size=cfg.size, verbose=False)
+                tc = _current_chain(tc)
                 b = _build_bundle(tc, cfg, cfg.day_count)
                 hist = None
                 # per-tenor IV history is OFF by default — it reruns the full ~1yr panel
@@ -818,54 +1015,21 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
             except Exception as e:
                 print(f"[term] {tn}d curve failed: {e}")
 
-    # --- VIX / VVIX empirical panels ---
+    # --- realised-vol regime + RV/IV term structure ---
+    rv_term = _fetch_rv_term_state(cfg, cvt, opd, spot, atf, term_bundles)
+
+    # --- VIX / VVIX empirical panels (SPX complex only) ---
     vix_dist = vvix_dist = vix_dist_since = vvix_dist_since = vix_vvix_ratio = None
-    if cfg.show_vix_panels:
+    vix_symbols = {str(s).upper() for s in getattr(cfg, "vix_panel_symbols", ())}
+    if cfg.show_vix_panels and str(cfg.symbol).upper() in vix_symbols:
         (vix_dist, vvix_dist, vix_dist_since,
          vvix_dist_since, vix_vvix_ratio) = _fetch_vix_panels(cfg, cvt, opd)
+    elif cfg.show_vix_panels:
+        print(f"[vix] VIX/VVIX panels hidden for {cfg.symbol}; they describe the SPX complex.")
 
-    # --- positions: optionally auto-populate the book from the trade ledger ---
+    # --- optional manual position book ---
     snap_positions = list(cfg.positions or [])
     snap_shares = float(cfg.shares or 0.0)
-    if getattr(cfg, "auto_positions", False):
-        from . import positions as _pos
-        analysed_exp = _chain_expiry(chain, cfg.date).strftime("%Y%m%d")
-        want_exp = analysed_exp if getattr(cfg, "auto_positions_match_expiry", False) else None
-        # also pull related instruments (e.g. SPY <- SPX/MES) with strike scaling
-        scales = _pos.resolve_symbol_scales(cfg.symbol)
-        try:
-            ledger_book, _meta = _pos.open_legs_from_ledger(
-                opd, cfg.symbol, expiry=want_exp, verbose=True, symbol_scales=scales)
-            # If matching the analysed expiry found nothing but open legs DO exist at other
-            # expiries, don't silently show an empty book — include them (valued at the
-            # analysed expiry, so P&L is approximate) so the position still appears.
-            if not ledger_book and want_exp is not None:
-                alt_book, _meta = _pos.open_legs_from_ledger(
-                    opd, cfg.symbol, expiry=None, verbose=False, symbol_scales=scales)
-                if alt_book:
-                    exps = sorted({str(m[2]) for m in _meta})
-                    print(f"[ledger] no open legs on the analysed expiry {want_exp}; showing all "
-                          f"{len(alt_book)} open leg(s) at {exps} instead (valued at the analysed "
-                          f"expiry — P&L approximate). Set target_dte to match, or "
-                          f"auto_positions_match_expiry=False to silence.")
-                    ledger_book = alt_book
-        except Exception as e:
-            ledger_book = []
-            print(f"[ledger] could not read trade ledger ({e}); skipping auto-positions.")
-        if getattr(cfg, "auto_positions_replace", False):
-            snap_positions = []
-        # merge: ledger legs net into any existing legs at the same (strike, kind)
-        for strike, kind, n in ledger_book:
-            existing = next((p for p in snap_positions
-                             if float(p[0]) == float(strike)
-                             and str(p[1]).upper()[0] == str(kind).upper()[0]), None)
-            base = int(existing[2]) if existing else 0
-            snap_positions = _pos.add_position(snap_positions, strike, kind, base + int(n))
-        if getattr(cfg, "auto_positions_shares", False):
-            try:
-                snap_shares += _pos.open_shares_from_ledger(opd, cfg.symbol)
-            except Exception as e:
-                print(f"[ledger] could not read delta-hedge shares ({e}).")
 
     # --- RV vs IV (realized-implied): fair vol/straddle from the most-recent-close
     #     composite RV, vs the market straddle now and at the day's open ---
@@ -911,7 +1075,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
         mkt_pdf_x=np.array([]), mkt_pdf_y=np.array([]),
         chain_prev=chain_prev, prev_poly=prev_poly, prev_label=prev_label, prev_obs_date=prev_obs,
         term_bundles=term_bundles, iv_atm=iv_atm, iv_history=iv_history, iv_rv=iv_rv,
-        rv_estimators=rv_estimators,
+        rv_estimators=rv_estimators, rv_term=rv_term,
         vix_dist=vix_dist, vvix_dist=vvix_dist, vix_dist_since=vix_dist_since,
         vvix_dist_since=vvix_dist_since, vix_vvix_ratio=vix_vvix_ratio,
         since_when=cfg.vix_dist_since,
@@ -932,7 +1096,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
     if data_notes:
         print("[data] " + "=" * 66)
         print(f"[data] DATA AVAILABILITY — {cfg.symbol}: {len(data_notes)} note(s) "
-              f"(terminal {'UP' if _term_cache.get('up') else 'DOWN/unknown'}). Shown on the dashboard.")
+              "Shown on the dashboard.")
         for _n in data_notes:
             print(f"[data]   • {_n}")
         print("[data] " + "=" * 66)

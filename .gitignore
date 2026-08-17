@@ -24,6 +24,7 @@ data/
 *.xlsx
 *.xls
 *.pdf            # exported dashboard runs — may contain the real position book
+SKEWLAB_RESUME_PROMPT.md   # local working note; keep off GitHub
 trade_ledger*
 .env
 .env.*

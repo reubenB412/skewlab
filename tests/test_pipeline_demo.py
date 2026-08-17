@@ -1,8 +1,9 @@
 """The synthetic demo backend must drive the whole stack offline (no network/terminal)."""
 from skewlab.config import RunConfig
-from skewlab import data as D, charts as C
+from skewlab import data as D, charts as C, rv
 from skewlab.pipeline.demo import get_demo_pipeline
 from skewlab.inspect import rv_compare_frame, collect_run_data
+from skewlab.charts import rv_term_structure
 
 
 def _demo_cfg(**kw):
@@ -46,3 +47,20 @@ def test_demo_vol_history_and_estimator_stack_build():
     assert C.vol_history.make(snap, cs) is not None
     assert C.vol_history.make_estimators(snap, cs) is not None
     assert snap.rv_estimators is not None and "Mean" in snap.rv_estimators.columns
+
+
+def test_demo_rv_term_structure_is_complete_and_deterministic():
+    cvt, opd = get_demo_pipeline()
+    snap = D.fetch_snapshot(_demo_cfg(show_rv_term_structure=True), cvt, opd)
+    state = snap.rv_term
+    assert state is not None and state.available
+    assert tuple(state.estimator_table.index) == rv.ESTIMATOR_ROWS
+    assert list(state.estimator_table.columns) == list(snap.cfg.rv_lookbacks)
+    assert int(state.hf_daily["is_complete_session"].sum()) >= 180
+    assert not bool(state.hf_daily["is_complete_session"].iloc[-1])
+    assert int(state.iv_curve["atf_iv"].notna().sum()) == len(snap.cfg.rv_iv_tenors)
+    assert state.summary["regime"] == "Front-end RV compressed"
+    assert rv_term_structure.make(snap, D.CurveState.market(snap)) is not None
+    data = collect_run_data(snap)
+    assert not data["rv_term_table"].empty
+    assert data["rv_term_metadata"]["source"] == "synthetic offline demo"

@@ -13,10 +13,12 @@ skewlab/
                wing extrapolation, Breeden-Litzenberger density, butterfly/calendar arb,
                distribution stats, delta-target inversion, realized-vol lookback map,
                and the RV-implied ATMF straddle.
+  rv.py        PURE realised-variance recovery, annualisation rebasing, rolling aggregation,
+               no-lookahead percentiles, regime labels, and RV/IV tables.
   data.py      I/O. fetch_snapshot(cfg, cvt, opd) does ALL fetching once and returns an
                immutable Snapshot; CurveState holds the mutable slider knobs. Source helpers
                handle forward/ATF identification (robust to thin chains), the previous-day
-               overlay, term-structure curves, IV-history panels, and the RV-vs-IV fields.
+               overlay, term curves, IV history, RV-vs-IV fields, and RVTermState assembly.
   analysis.py  metrics(snap, cs) computes every number once; render_text / render_html
                produce the plain-text and Dash-card narratives.
   charts/      one module per chart, each a pure make(snap, cs) -> Figure, plus a registry
@@ -25,8 +27,8 @@ skewlab/
                per SD node and scenario presets.
   pipeline/    the data-source boundary (see below).
   run.py       entry point: build config -> fetch snapshot -> serve dashboard.
-  inspect.py   collect_run_data(snap) -> {name: DataFrame} for interactive inspection.
-  positions.py pure book helpers + trade-ledger -> position-book adapters.
+  inspect.py   structured inspection plus a bounded Markdown/CSV LLM-context export.
+  positions.py pure helpers for an optional manually supplied position book.
 ```
 
 ## Key design decisions
@@ -41,6 +43,11 @@ skewlab/
 - **Arbitrage-aware by default.** SVI is the default smile; the fitted curve is checked for
   butterfly and calendar arbitrage and the result is surfaced in the analysis card.
 - **Analytic greeks everywhere** (no bump-and-reprice).
+- **Explicit variance clocks.** Backward RV windows count completed trading sessions and use
+  the configured RV annualisation basis. Forward IV uses actual calendar DTE and calendar/365
+  integrated variance. The chart labels both rather than pretending they are the same clock.
+- **Partial-session safety.** Daily high-frequency variance carries an explicit completion flag;
+  rolling curves discard incomplete sessions before any window is formed.
 
 ## The data-source boundary
 
@@ -53,23 +60,16 @@ dashboard.
   mid_call, mid_put, midpoint, expiration`.
 - `get_composite_realised_volatility(symbol, lookback, start, end, ...) -> DataFrame` with a
   `Mean` column indexed by date.
+- `get_rv_term_source(...) -> dict` with annualized RV columns plus completion flags and
+  timestamps. `rv.py` converts those vols back to daily variance before rebasing/aggregation.
 
-`opd` (calendar / prices / panels / ledger):
+`opd` (calendar / prices / panels):
 - `trading_dates`, `last_trading_date`, `second_last_trading_date`, `ny_timezone`
 - `get_ohlcv_from_symbol(symbol) -> OHLCV DataFrame`
 - `close_tickers -> DataFrame` (columns include `^VIX`, `^VVIX`)
 - `build_iv_panels(symbol, start, end, target_dte, ...) -> (iv_atm Series, iv_history DataFrame)`
-- `fetch_trades_ledger()` / `trades_dict` / `print_trade_list(...)`
 
-Two implementations live behind this boundary:
-
-- **Production** — the private `CapriciousVolTamer` pipeline (a ThetaData terminal for
-  historical option greeks, yfinance for intraday snapshots, and a local Excel trade ledger).
-  Not shipped in this repo.
-- **Demo** — `skewlab/pipeline/demo.py`, a self-contained numpy/pandas backend that generates
-  a reproducible synthetic world per symbol (GBM price path, put-skewed smile, rolling
-  realized vol, IV-history panels, VIX/VVIX series, a small trade ledger). No network, no
-  terminal, no credentials — so the dashboard, tests and CI all run offline.
-
-`skewlab.run.get_pipeline()` selects the production backend when importable and falls back to
-the demo otherwise (or when `SKEWLAB_DEMO=1`).
+The public launcher selects only `skewlab/pipeline/demo.py`, a self-contained numpy/pandas
+adapter that produces reproducible option chains, price paths, RV, IV-history panels, and
+VIX/VVIX series. No network or credentials are used. The injection seam is retained so the
+maths and charts can be tested independently of data generation.

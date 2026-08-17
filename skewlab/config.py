@@ -51,6 +51,7 @@ class RunConfig:
 
     # --- IV history / regime ---
     use_iv_history: bool = True
+    iv_hist_target_dte: int | None = None  # optional stable history horizon, independent of live DTE
     iv_hist_start: str | None = '2025-06-01' # e.g. "2025-12-01"; None -> pipeline default
     iv_hist_end: str | None = None       # None -> the pricing date
     iv_hist_reset: bool = False
@@ -66,6 +67,8 @@ class RunConfig:
 
     # --- VIX / VVIX panels (cumulative-close distribution + VVIX/VIX convexity ratio) ---
     show_vix_panels: bool = True
+    # VIX/VVIX describe the SPX complex; hide those panels for unrelated underlyings.
+    vix_panel_symbols: tuple = ("SPY", "SPX", "SPXW", "XSP", "^SPX", "^GSPC", "ES", "MES")
     vix_dist_since: str | None = None    # None -> only full-history VIX/VVIX dists;
                                          # a date (e.g. "2025-10-01") ALSO adds "since" dists
     vix_dist_end: str | None = None
@@ -91,15 +94,28 @@ class RunConfig:
     wing_extra_sd: float = 1.5           # extra SDs to draw/price past the grid ends
 
     # --- positions (covered-strangle / book) ---
-    positions: list | None = field(default_factory=lambda: [
-        (740, "P", 100), (715, "P", -200), (690, "P", 100), (780, "C", 50), (810, "C", -50)])
+    positions: list | None = None
     shares: float | None = 0
 
-    # --- auto-populate the book from the trade ledger (opd.fetch_trades_ledger) ---
-    auto_positions: bool = False             # pull OPEN ledger legs for `symbol` into the book
-    auto_positions_match_expiry: bool = False  # only legs on the analysed expiry (else all open)
-    auto_positions_shares: bool = False      # also net OPEN delta-hedge shares into `shares`
-    auto_positions_replace: bool = False     # True: ledger legs replace `positions`; False: merge
+    # --- RV regime + term structure ---
+    show_rv_term_structure: bool = True
+    rv_hf_load_current: bool = True       # public demo is always cache/offline semantics
+    rv_hf_lookback_months: int = 12
+    rv_hf_source_basis: float = 365.0
+    rv_hf_target_basis: float = 252.0
+    rv_hf_sample_minutes: int = 5
+    rv_hf_signature: bool = False
+    rv_lookbacks: tuple = (5, 10, 20, 30, 45, 60, 90, 120, 180)
+    rv_iv_tenors: tuple = (10, 20, 30, 45, 60, 90, 120, 180)
+    rv_percentile_window: int = 252
+    rv_percentile_min_periods: int = 60
+    rv_compressed_threshold: float = 0.90
+    rv_inverted_threshold: float = 1.00
+    rv_building_percentile: float = 70.0
+    rv_hf_symbol_proxies: dict = field(default_factory=lambda: {
+        "SPX": "SPY", "SPXW": "SPY", "^SPX": "SPY", "^GSPC": "SPY",
+        "XSP": "SPY", "ES": "SPY", "MES": "SPY", "MES=F": "SPY",
+    })
 
     # --- RV vs IV (realized-implied fair value) ---
     show_rv_compare: bool = True         # RV-implied fair vol/straddle vs market now & open

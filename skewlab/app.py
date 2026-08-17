@@ -32,7 +32,7 @@ def _figures(snap, cs):
 
 def build_app(snap):
     import dash
-    from dash import dcc, html
+    from dash import dash_table, dcc, html
     from dash.dependencies import Input, Output, State
 
     cfg = snap.cfg
@@ -104,6 +104,172 @@ def build_app(snap):
 
     # --- vol-history section: IV-history-vs-realized + RV estimator stack, own start-date ---
     _gcfg = {"displaylogo": False, "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]}
+
+    # --- realised-vol regime + estimator/IV term structure (non-reactive) ---
+    def _finite(value):
+        try:
+            value = float(value)
+            return value if np.isfinite(value) else None
+        except (TypeError, ValueError):
+            return None
+
+    def _ordinal(value):
+        value = _finite(value)
+        if value is None:
+            return "percentile unavailable"
+        n = round(value)
+        suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix} percentile"
+
+    def _percentile_rail(value):
+        value = _finite(value)
+        if value is None:
+            return html.Div(style={"height": "6px", "background": "#e2e8f0", "borderRadius": "6px"})
+        left = min(max(value, 0.0), 100.0)
+        return html.Div([
+            html.Div(style={"position": "absolute", "left": f"calc({left:.1f}% - 4px)",
+                            "top": "-3px", "width": "8px", "height": "12px",
+                            "borderRadius": "5px", "background": "#d97706",
+                            "boxShadow": "0 0 0 2px #fff"}),
+        ], style={"height": "6px", "background": "linear-gradient(90deg,#dbeafe,#99f6e4)",
+                  "borderRadius": "6px", "position": "relative", "margin": "9px 0 7px"})
+
+    def _shape_metric(label, value, percentile, *, vol_points=False, reference=None):
+        value = _finite(value)
+        shown = "—" if value is None else (f"{value * 100:+.2f} vol pts" if vol_points else f"{value:.2f}")
+        detail = _ordinal(percentile) + (f" · {reference}" if reference else "")
+        return html.Div([
+            html.Div(label, style={"fontSize": "11px", "fontWeight": 700,
+                                   "textTransform": "uppercase", "letterSpacing": ".035em",
+                                   "color": "#64748b"}),
+            html.Div(shown, style={"fontSize": "22px", "fontWeight": 800,
+                                   "color": "#0f172a", "marginTop": "3px"}),
+            _percentile_rail(percentile),
+            html.Div(detail, style={"fontSize": "11px", "color": "#64748b"}),
+        ], style={"border": "1px solid #e8edf3", "borderRadius": "10px",
+                  "padding": "12px", "minWidth": "0"})
+
+    def _movement_bar(label, pct, points, color, scale):
+        pct, points = _finite(pct), _finite(points)
+        width = 0.0 if points is None or scale <= 0 else min(100.0, 100.0 * points / scale)
+        value = "—" if pct is None else f"{pct:.2f}%"
+        if points is not None:
+            value += f" · {points:.2f} points"
+        return html.Div([
+            html.Div([html.Span(label), html.Span(value, style={"fontWeight": 700})],
+                     style={"display": "flex", "justifyContent": "space-between", "gap": "12px",
+                            "fontSize": "11.5px", "color": "#64748b", "marginBottom": "5px"}),
+            html.Div(html.Div(style={"height": "100%", "width": f"{width:.1f}%",
+                                     "background": color, "borderRadius": "6px"}),
+                     style={"height": "8px", "background": "#edf1f5", "borderRadius": "6px"}),
+        ], style={"marginBottom": "10px"})
+
+    rv_term_section = None
+    rv_state = getattr(snap, "rv_term", None)
+    if rv_state is not None and rv_state.available:
+        sm = dict(rv_state.summary)
+        implied_pts = _finite(sm.get("implied_expected_abs_points"))
+        realised_pts = _finite(sm.get("realised_average_abs_points"))
+        move_scale = max([x for x in (implied_pts, realised_pts) if x is not None] + [1e-12])
+        sigma_pct = _finite(sm.get("implied_daily_sigma_pct"))
+        gap_pts = _finite(sm.get("movement_gap_points"))
+        gap_text = ("Implied-versus-realised movement gap unavailable." if gap_pts is None else
+                    f"Implied expected absolute movement is {abs(gap_pts):.2f} points "
+                    f"{'above' if gap_pts >= 0 else 'below'} the recent 5-session realised average.")
+        movement = html.Div([
+            html.Div("Daily movement comparison", style={"fontWeight": 800, "fontSize": "13px",
+                                                           "marginBottom": "8px"}),
+            html.Div([html.Span("Implied daily 1-sigma move", style={"color": "#64748b"}),
+                      html.Span("—" if sigma_pct is None else f"{sigma_pct:.2f}%",
+                                style={"fontWeight": 800, "color": "#2563eb"})],
+                     style={"display": "flex", "justifyContent": "space-between", "fontSize": "12px",
+                            "padding": "8px 10px", "background": "#eff6ff",
+                            "borderRadius": "8px", "marginBottom": "10px"}),
+            _movement_bar("Implied expected absolute daily move",
+                          sm.get("implied_expected_abs_pct"), implied_pts, "#3478d4", move_scale),
+            _movement_bar("Realised average absolute move · last 5 sessions",
+                          sm.get("realised_average_abs_pct"), realised_pts, "#0f9f9a", move_scale),
+            html.Div(gap_text, style={"fontSize": "11px", "color": "#64748b"}),
+        ], style={"border": "1px solid #e8edf3", "borderRadius": "10px",
+                  "padding": "13px", "marginBottom": "12px"})
+
+        metrics = html.Div([
+            _shape_metric("5d / 20d RV slope", sm.get("slope_5_20"), sm.get("slope_5_20_pct")),
+            _shape_metric("10d / 30d RV slope", sm.get("slope_10_30"), sm.get("slope_10_30_pct")),
+            _shape_metric("RV curvature", sm.get("curvature"), sm.get("curvature_pct"),
+                          reference="stress ref > 1.10"),
+            _shape_metric("RV acceleration · 3 sessions", sm.get("rv_acceleration"),
+                          sm.get("rv_acceleration_pct"), vol_points=True),
+        ], className="rv-metric-grid")
+
+        table = rv_state.estimator_table.copy()
+        display = table.mul(100.0)
+        display.insert(0, "RV Rolling", display.index.astype(str))
+        for col in table.columns:
+            display[col] = display[col].map(lambda x: "—" if _finite(x) is None else f"{float(x):.2f}%")
+        display = display.rename(columns={c: f"{int(c)}d" for c in table.columns})
+        rv_table = dash_table.DataTable(
+            columns=[{"name": "RV Rolling", "id": "RV Rolling"}] +
+                    [{"name": f"{int(c)}d", "id": f"{int(c)}d"} for c in table.columns],
+            data=display.to_dict("records"), fixed_columns={"headers": True, "data": 1},
+            style_table={"overflowX": "auto", "border": "1px solid #e8edf3",
+                         "borderRadius": "10px"},
+            style_cell={"fontFamily": "Inter", "fontSize": "11.5px", "padding": "7px 10px",
+                        "textAlign": "right", "minWidth": "72px", "border": "none",
+                        "borderBottom": "1px solid #f1f5f9"},
+            style_header={"fontWeight": 700, "backgroundColor": "#f1f5f9"},
+            style_cell_conditional=[{"if": {"column_id": "RV Rolling"}, "textAlign": "left",
+                                     "fontWeight": 600, "minWidth": "190px"}],
+            style_data_conditional=[
+                {"if": {"filter_query": "{RV Rolling} = 'Mean Volatility'"},
+                 "fontWeight": 800, "backgroundColor": "#f1f5f9"},
+                {"if": {"filter_query": "{RV Rolling} = 'Mean Intra'"},
+                 "fontWeight": 750, "backgroundColor": "#f8fafc"},
+                {"if": {"filter_query": "{RV Rolling} = 'Mean C-C'"},
+                 "fontWeight": 750, "backgroundColor": "#f8fafc"},
+                {"if": {"filter_query": "{RV Rolling} = 'HF Total RV'"},
+                 "fontWeight": 800, "color": "#0f766e", "backgroundColor": "#ecfdf5"},
+            ],
+        )
+
+        warnings = [html.Div(f"⚠ {w}") for w in rv_state.warnings]
+        warning_box = (html.Div(warnings, style={"fontSize": "11px", "color": "#92400e",
+                                                "background": "#fffbeb", "padding": "8px 10px",
+                                                "borderRadius": "8px", "marginTop": "10px"})
+                       if warnings else None)
+        meta = rv_state.metadata
+        source_line = (
+            f"{meta.get('source', 'backend')} · {meta.get('sample_minutes', 5)}-minute variance · "
+            f"source basis {meta.get('source_basis', '—')} → table basis {meta.get('target_basis', '—')} · "
+            f"{meta.get('percentile_method', 'trailing history')}. Settled sessions only."
+        )
+        rv_fig = charts_pkg.rv_term_structure.make(snap, CurveState.market(snap))
+        rv_term_section = html.Div([
+            html.Div([html.Div("Realised-vol regime & term structure",
+                              style={"fontWeight": 800, "fontSize": "15px"}),
+                      html.Div(f"{sm.get('regime', 'RV regime unavailable')} · "
+                               f"{sm.get('regime_source', 'HF total')}",
+                               style={"fontWeight": 700, "fontSize": "12px", "color": "#fbbf24"})],
+                     style={"background": "#0f172a", "color": "#fff", "padding": "12px 16px",
+                            "display": "flex", "justifyContent": "space-between", "flexWrap": "wrap"}),
+            html.Div([
+                html.Div("1 · Realised-vol regime summary", style={"fontWeight": 800,
+                                                                    "fontSize": "13px",
+                                                                    "marginBottom": "10px"}),
+                movement, metrics,
+                html.Div(source_line, style={"fontSize": "10.5px", "color": "#64748b",
+                                             "marginTop": "10px"}),
+                warning_box,
+                html.Div("2 · Current RV estimator term structure",
+                         style={"fontWeight": 800, "fontSize": "13px", "margin": "18px 0 10px"}),
+                rv_table,
+                html.Div("3 · RV versus IV term structure",
+                         style={"fontWeight": 800, "fontSize": "13px", "margin": "18px 0 2px"}),
+                dcc.Graph(figure=rv_fig, config=_gcfg) if rv_fig is not None else
+                html.Div("Term-structure chart unavailable.", style={"padding": "20px"}),
+            ], style={"padding": "15px 16px 6px"}),
+        ], className="mt-card", style={"marginBottom": "14px", "overflow": "hidden"})
+
     _VH_ON = charts_pkg.vol_history.has_history(snap) or charts_pkg.vol_history.has_estimators(snap)
     volhist_section = None
     if _VH_ON:
@@ -125,10 +291,25 @@ def build_app(snap):
             dcc.Loading(dcc.Graph(id="g_rv_estimators", config=_gcfg), type="dot"),
         ], className="mt-card", style={"marginTop": "4px", "padding": "18px", "marginBottom": "14px"})
 
-    main = html.Div([html.Div(id="analysis", style={"marginBottom": "14px"})]
-                    + [_graph_card(k) for k in keys]
-                    + ([volhist_section] if volhist_section is not None else []),
-                    style={"flex": "1", "padding": "16px", "minWidth": "0"})
+    ordered_groups = [
+        ("curve", "strike_vol_change", "distribution"),
+        ("rv_vs_iv",),
+        ("iv_history",),
+        ("vix_distribution", "vix_distribution_since", "vvix_vix_ratio"),
+        ("position", "pnl"),
+    ]
+    placed = {k for group in ordered_groups for k in group}
+    main_children = [html.Div(id="analysis", style={"marginBottom": "14px"})]
+    main_children += [_graph_card(k) for k in ordered_groups[0] if k in keys]
+    if rv_term_section is not None:
+        main_children.append(rv_term_section)
+    main_children += [_graph_card(k) for k in ordered_groups[1] if k in keys]
+    main_children += [_graph_card(k) for k in ordered_groups[2] if k in keys]
+    if volhist_section is not None:
+        main_children.append(volhist_section)
+    main_children += [_graph_card(k) for group in ordered_groups[3:] for k in group if k in keys]
+    main_children += [_graph_card(k) for k in keys if k not in placed]
+    main = html.Div(main_children, style={"flex": "1", "padding": "16px", "minWidth": "0"})
 
     topbar = html.Div([
         html.Div([html.Span("Moontower", style={"fontWeight": 800, "fontSize": "17px", "color": "#fff"}),
@@ -160,6 +341,9 @@ def build_app(snap):
   .rc-slider-track { background:#2f6feb !important; }
   .rc-slider-handle { border-color:#2f6feb !important; opacity:1 !important; }
   .rc-slider-handle:hover { border-color:#2f6feb !important; }
+  .rv-metric-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+  @media (max-width: 1050px) { .rv-metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (max-width: 660px) { .rv-metric-grid { grid-template-columns:1fr; } }
 </style></head>
 <body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body></html>"""
     app.layout = html.Div([topbar, html.Div([controls, main],
@@ -269,6 +453,11 @@ def write_static_html(snap, outdir="."):
             continue
         path = os.path.join(outdir, f"skewlab_{c.key}.html")
         fig.write_html(path)
+        written.append(path)
+    rv_fig = charts_pkg.rv_term_structure.make(snap, cs)
+    if rv_fig is not None:
+        path = os.path.join(outdir, "skewlab_rv_term_structure.html")
+        rv_fig.write_html(path)
         written.append(path)
     apath = os.path.join(outdir, "skewlab_analysis.txt")
     with open(apath, "w") as fh:

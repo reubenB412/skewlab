@@ -31,6 +31,4 @@ jobs:
         run: ruff check skewlab
 
       - name: Test (pytest)
-        env:
-          SKEWLAB_DEMO: "1"          # force the synthetic offline backend in CI
         run: pytest

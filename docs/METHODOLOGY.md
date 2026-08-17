@@ -79,3 +79,36 @@ conditional-vol column. The composite `Mean` uses fixed efficiency weights (inve
 variance), which down-weight the noisy close-to-close estimator and up-weight the
 range-based ones. The lookback in trading days is matched to the option's calendar horizon
 via `trading_days_for_dte(dte) = round(dte · 5/7)`.
+
+## 6. Realized-vol regime and term structure
+
+The high-frequency-shaped source reports annualized volatility on a source basis `B_s`
+(365 in the demo). skewlab first recovers unannualized daily variance:
+
+```
+v_t = RV_t² / B_s
+```
+
+Only sessions explicitly marked complete enter a rolling window. An `n`-session RV displayed
+on target basis `B_t` (252 by default) is therefore:
+
+```
+RV(n) = √( B_t / n · Σ v_t )
+```
+
+This is variance/RMS aggregation, not an arithmetic average of daily volatilities. Intraday,
+overnight, bipower-continuous, and jump components follow the same variance arithmetic.
+Documented composition shares use:
+
+- jump share = rolling jump variance / rolling intraday variance;
+- overnight share = rolling overnight variance / rolling total variance;
+- continuous share = rolling bipower variance / rolling total variance.
+
+The curve shape is summarized by `RV(5)/RV(20)`, `RV(10)/RV(30)`, curvature
+`[RV(5)+RV(10)]/[2·RV(20)]`, and the three-session change in `RV(5)`. Percentiles are computed
+inside a trailing window that ends on the observation being ranked, so future data cannot leak
+into the regime label.
+
+The forward implied curve is a different clock. Each point uses the option's actual calendar
+DTE `d` and integrated variance `σ_IV²·d/365`. The chart overlays levels for comparison, while
+its labels and hovers keep backward completed-session windows distinct from forward maturity.

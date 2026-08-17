@@ -13,8 +13,8 @@ from . import charts as charts_pkg
 
 def make_fake_snapshot(with_prev=True, with_hist=True, with_pos=True):
     cfg = RunConfig(symbol="TEST")
-    if not with_pos:
-        cfg.positions, cfg.shares = [], 0
+    cfg.positions = [(560, "P", -1), (650, "C", -1)] if with_pos else []
+    cfg.shares = 0
     z = cfg.z_grid
     spot, r, q, t = 600.0, 0.04, 0.013, 30 / 365.0
     atf = 0.18

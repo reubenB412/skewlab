@@ -382,9 +382,10 @@ def delta_point(poly, grid_strikes, S, T, r, q, slope_left, slope_right, wings_o
 # --- VIX / VVIX empirical analytics -------------------------------------------------
 def cumulative_price_distribution(closes, bin_size=2.0):
     """Cumulative distribution of a close series over fixed-width price bins.
-    Returns (df[price_bin,count,prob,cum_prob], current_close, current_bin_label)."""
+    Returns the distribution plus current and previous-session close/bin markers."""
     closes = pd.Series(closes).dropna()
     current_close = float(closes.iloc[-1])
+    prev_close = float(closes.iloc[-2]) if len(closes) >= 2 else None
     lo = np.floor(closes.min() / bin_size) * bin_size
     hi = np.ceil(closes.max() / bin_size) * bin_size
     bins = np.arange(lo, hi + bin_size, bin_size)
@@ -394,12 +395,17 @@ def cumulative_price_distribution(closes, bin_size=2.0):
     total = df["count"].sum()
     df["prob"] = df["count"] / total if total else 0.0
     df["cum_prob"] = df["prob"].cumsum()
-    current_bin = None
-    for interval, label in zip(pd.IntervalIndex.from_breaks(bins), labels):
-        if current_close in interval:
-            current_bin = label
-            break
-    return df, current_close, current_bin
+    intervals = list(zip(pd.IntervalIndex.from_breaks(bins), labels))
+
+    def _bin_of(value):
+        if value is None:
+            return None
+        for interval, label in intervals:
+            if value in interval:
+                return label
+        return None
+
+    return df, current_close, _bin_of(current_close), prev_close, _bin_of(prev_close)
 
 
 def vvix_vix_ratio_table(vix, vvix, ewma_fn=None, lookback=21, ewma_alpha=0.94,

@@ -13,12 +13,23 @@ from plotly.subplots import make_subplots
 from .. import theme
 
 _HILITE = "#f2c200"
+_HILITE_PREV = "rgba(242,194,0,0.45)"
 
 
 def _panel(fig, dist, label, row):
-    df, cur_close, cur_bin = dist
-    edge_c = [_HILITE if b == cur_bin else "rgba(0,0,0,0)" for b in df["price_bin"]]
-    edge_w = [3 if b == cur_bin else 0 for b in df["price_bin"]]
+    df, cur_close, cur_bin, *rest = dist
+    prev_close, prev_bin = (list(rest) + [None, None])[:2]
+    yref = f"y{2*row} domain" if row > 1 else "y2 domain"
+
+    def _edge(bin_label):
+        if bin_label == cur_bin:
+            return _HILITE, 3
+        if prev_bin is not None and bin_label == prev_bin:
+            return _HILITE_PREV, 2
+        return "rgba(0,0,0,0)", 0
+
+    edge_c = [_edge(b)[0] for b in df["price_bin"]]
+    edge_w = [_edge(b)[1] for b in df["price_bin"]]
     # histogram (probability per bin)
     fig.add_trace(go.Bar(
         x=df["price_bin"], y=df["prob"], customdata=df["count"], name=f"{label} histogram",
@@ -31,8 +42,13 @@ def _panel(fig, dist, label, row):
         line=dict(color="#ef553b", width=2),
         hovertemplate="<b>%{x}</b><br>cum prob %{y:.1%}<extra></extra>"),
         row=row, col=1, secondary_y=True)
+    if prev_bin is not None and prev_close is not None and prev_bin != cur_bin:
+        fig.add_annotation(x=prev_bin, y=1.0, yref=yref, text=f"prev {prev_close:.1f}",
+                           showarrow=True, arrowhead=2, arrowcolor="rgba(154,122,0,0.5)",
+                           ax=0, ay=-42, font=dict(size=9, color="rgba(154,122,0,0.6)"),
+                           row=row, col=1, secondary_y=True)
     if cur_bin is not None:
-        fig.add_annotation(x=cur_bin, y=1.0, yref=f"y{2*row} domain" if row > 1 else "y2 domain",
+        fig.add_annotation(x=cur_bin, y=1.0, yref=yref,
                            text=f"last {cur_close:.1f}", showarrow=True, arrowhead=2, ax=0, ay=-22,
                            font=dict(size=10, color="#9a7a00"), row=row, col=1, secondary_y=True)
     fig.update_yaxes(title_text="share of days", tickformat=".0%", row=row, col=1, secondary_y=False)

@@ -19,6 +19,7 @@ import numpy as np
 
 from . import (curve, distribution, rv_vs_iv, strike_vol_change, vix_distribution,
                vvix_vix_ratio, position, pnl, iv_history)
+from . import rv_term_structure as rv_term_structure  # bespoke non-reactive dashboard section
 from . import vol_history as vol_history   # re-export: rendered in its own app section, not REGISTRY
 
 

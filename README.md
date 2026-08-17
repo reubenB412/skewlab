@@ -1,15 +1,15 @@
 # skewlab
 
 **An arbitrage-aware option skew and volatility dashboard.** It fits the implied smile with
-SVI, recovers the risk-neutral density, checks that smile for arbitrage, and compares implied
-vol to a composite realized-vol estimate. Everything renders in an interactive Dash app.
+SVI, recovers the risk-neutral density, checks the smile for arbitrage, and compares implied
+volatility with realized-volatility levels, regimes, and term structures. Everything renders
+in an interactive Dash app.
 
 [![CI](https://github.com/reubenB412/skewlab/actions/workflows/ci.yml/badge.svg)](https://github.com/reubenB412/skewlab/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
-> **Runs offline.** With no market-data credentials, skewlab falls back to a synthetic,
-> reproducible backend, so you can clone the repo and launch the dashboard in one command.
-> See [Data backends](#data-backends).
+> **Runs offline.** This public demo uses a deterministic synthetic adapter: no network,
+> credentials, market-data terminal, or local portfolio files are read.
 
 ![SPY skew curve, offline demo run](docs/skew_curve_demo.png)
 
@@ -89,8 +89,13 @@ spreadsheet and eyeballing.
 - **Vol history (IV vs realized).** Plots the implied-vol history buckets (ATM, 25Δ/10Δ
   put+call) against the composite realized-vol Mean, plus the realized-vol estimator stack,
   over an adjustable start date.
-- **Position analytics.** Optional book (manual or from a trade ledger) with analytic
+- **RV regime and term structure.** Recovers daily variance, excludes incomplete sessions,
+  aggregates rolling RV with variance/RMS arithmetic, rebases annualization from source to
+  display basis, and compares 5–180-session RV with 10–180-day forward ATM IV.
+- **Position analytics.** Optional manual book with analytic
   greeks, a P&L decomposition (realized-vol / vega / delta), and payoff context.
+- **Bounded LLM context.** `print_llm_context(snap)` emits a paste-ready Markdown/CSV briefing
+  from the canonical snapshot without dumping an entire option chain.
 
 Everything is wrapped in a Dash dashboard with live sliders per standard-deviation node,
 scenario presets, and a data-inspection layer that exposes every intermediate DataFrame.
@@ -106,35 +111,19 @@ pip install -r requirements.txt                         # or: pip install -e ".[
 python skewlab.py                                       # opens http://127.0.0.1:8050
 ```
 
-With no production data pipeline present, this launches on **synthetic offline data**. To be
-explicit:
-
-```bash
-SKEWLAB_DEMO=1 python skewlab.py
-```
+This always launches on **synthetic offline data**.
 
 Edit the `INPUTS` block at the top of [`skewlab.py`](skewlab.py) to change the symbol,
 target DTE, skew model, or position book.
 
-## Data backends
+## Offline data adapter
 
-skewlab's I/O layer never imports a data vendor directly. It receives two injected objects,
-`cvt` (option chains + composite realized vol) and `opd` (calendar, OHLCV, IV-history panels,
-VIX/VVIX, trade ledger). Two backends implement that small interface:
-
-| Backend | Source | Use |
-|---|---|---|
-| **Production** | private `CapriciousVolTamer` pipeline: **ThetaData** (settled option chains + greeks), **yfinance** (underlying history + the intraday snapshot), local trade ledger | live use; **not included** in this repo |
-| **Demo** | [`skewlab/pipeline/demo.py`](skewlab/pipeline/demo.py): reproducible synthetic chains, RV, IV panels, VIX/VVIX, calendar | offline demo, tests, CI |
-
-In live use, settled option chains and option greeks come from **ThetaData**, a professional
-options-data feed; the underlying's price history and the intraday ("today") snapshot come
-from **yfinance**; and the position book is read from a local trade ledger. The demo backend
-fabricates all of this synthetically so nothing is required to run it.
-
-`skewlab.run.get_pipeline()` uses the production backend when importable and falls back to the
-demo one otherwise. That seam is what lets the repo stay public while the private data plumbing
-stays out of it.
+skewlab's I/O layer receives two small injected objects: `cvt` for synthetic option chains,
+composite RV, and the high-frequency-shaped RV source; and `opd` for its synthetic calendar,
+OHLCV, IV-history panels, and VIX/VVIX series. The implementation in
+[`skewlab/pipeline/demo.py`](skewlab/pipeline/demo.py) is reproducible per symbol and is the
+only adapter selected by the public launcher. The quant core and charts remain independent of
+that adapter.
 
 ## Architecture
 
@@ -144,23 +133,24 @@ A layered package with a pure quant core and an injected I/O boundary:
 skewlab/
   config.py      RunConfig dataclass — every knob, no side effects
   model.py       PURE math: Black-Scholes/greeks, SVI, Breeden-Litzenberger, no-arb, stats
+  rv.py          PURE variance recovery, RV aggregation, shape/regime, estimator tables
   data.py        I/O: fetch_snapshot(cfg, cvt, opd) -> immutable Snapshot (+ CurveState)
   analysis.py    metrics(snap, cs) + text / HTML narrative
   charts/        one pure make(snap, cs) -> Figure per chart, + a registry
   app.py         Dash app built generically from the chart registry
-  pipeline/      the data-source boundary: demo.py (synthetic) | production (private)
+  pipeline/      the deterministic offline demo adapter
   run.py         entry point: config -> snapshot -> serve
 ```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design decisions and
 [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) for the maths (SVI, Breeden–Litzenberger,
-the RV-vs-IV fair-value calc, and the realized-vol estimator stack).
+RV-vs-IV fair value, variance clocks, and the realized-vol term structure).
 
 ## Tests
 
 ```bash
 pip install -e ".[dev]"
-pytest                     # put-call parity, BL density ~1, SVI no-arb, demo smoke
+pytest                     # math, variance aggregation, no-lookahead, and demo integration
 ruff check skewlab
 ```
 
@@ -171,7 +161,7 @@ CI runs the suite on Python 3.10–3.12 against the offline demo backend.
 - Honor non-reacting charts on slider Apply (interactive-latency win)
 - Vectorize the delta scans
 - Position payoff overlaid on the implied density + risk-neutral E[P&L] / probability of profit
-- Vanna/volga in the position panel; a dedicated ATM term-structure (vol-vs-DTE) chart
+- Vanna/volga in the optional position panel
 
 ## Disclaimer
 

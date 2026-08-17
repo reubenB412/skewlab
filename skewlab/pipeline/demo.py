@@ -1,17 +1,17 @@
 """skewlab.pipeline.demo — a self-contained SYNTHETIC data backend.
 
 Implements the small surface skewlab needs from the (private) production pipeline so the
-dashboard, tests and CI run **offline** — no network, no ThetaData terminal, no API keys.
+dashboard, tests and CI run **offline** — no network, external terminal, or API keys.
 Everything is generated reproducibly from numpy PRNGs seeded per symbol, so a given symbol
 always yields the same synthetic world.
 
     from skewlab.pipeline.demo import get_demo_pipeline
     cvt, opd = get_demo_pipeline()
 
-`cvt` provides:  get_quick_option_chain, get_composite_realised_volatility
+`cvt` provides:  get_quick_option_chain, get_composite_realised_volatility,
+                 get_rv_term_source
 `opd` provides:  trading_dates, last_trading_date, second_last_trading_date, ny_timezone,
-                 get_ohlcv_from_symbol, close_tickers, build_iv_panels,
-                 fetch_trades_ledger / trades_dict / print_trade_list
+                 get_ohlcv_from_symbol, close_tickers, build_iv_panels
 
 The synthetic option chains carry exactly the columns skewlab reads
 (S, R, Q, dte, T, implied_vol, iv_call, iv_put, straddle, mid_call, mid_put, midpoint,
@@ -239,9 +239,50 @@ class DemoCVT(_DemoBase):
             out = out.loc[:pd.Timestamp(end)]
         return out
 
+    def get_rv_term_source(self, symbol, *, lookback_months=12, source_basis=365.0,
+                           sample_minutes=5, daily_ohlc=None, load_current=True):
+        """Deterministic CVT-shaped high-frequency RV source for the offline demo.
+
+        The values are annualised on ``source_basis``. The I/O layer deliberately recovers
+        daily variance and rebases it to the configured display basis, exactly as it does
+        for a live backend. The final synthetic session is incomplete and must be excluded.
+        """
+        w = self.world(symbol)
+        idx = w.dates[-min(len(w.dates), max(400, int(lookback_months * 24))):]
+        x = np.linspace(0.0, 8.0 * np.pi, len(idx))
+        target_vol = 0.22 + 0.025 * np.sin(x) + 0.008 * np.cos(0.43 * x)
+        # Finish with a compressed front end: 5/10-session RV below 20/30-session anchors.
+        target_vol[-30:-20] = 0.24
+        target_vol[-20:-10] = 0.21
+        target_vol[-10:] = 0.10
+        source_vol = target_vol * np.sqrt(float(source_basis) / 252.0)
+        source_vol[-1] = 0.80                    # deliberately partial, therefore excluded
+        rvdf = pd.DataFrame({
+            "rv_daily": source_vol,
+            "overnight": source_vol * np.sqrt(0.14),
+            "bipower_var": source_vol * np.sqrt(0.72),
+            "jump_var": source_vol * np.sqrt(0.14),
+            "gk_daily": source_vol * np.sqrt(0.80),
+            "M": 78,
+            "bns_jump_z": 0.4,
+            "bns_jump_pval": 0.68,
+            "jump_sig_flag": False,
+        }, index=pd.Index(idx.date))
+        complete = pd.Series(True, index=idx)
+        complete.iloc[-1] = False
+        timestamps = pd.Series(idx + pd.Timedelta(hours=16), index=idx)
+        return {
+            "source": "synthetic offline demo",
+            "rvdf": rvdf,
+            "complete_flags": complete,
+            "asof_timestamps": timestamps,
+            "intraday": pd.DataFrame(),
+            "volatility_signature": pd.DataFrame(),
+        }
+
 
 class DemoOPD(_DemoBase):
-    """Synthetic calendar / OHLCV / IV-history / VIX-VVIX / ledger source (the ``opd`` role)."""
+    """Synthetic calendar / OHLCV / IV-history / VIX-VVIX source (the ``opd`` role)."""
 
     def __init__(self, today=None):
         super().__init__(today)
@@ -250,19 +291,6 @@ class DemoOPD(_DemoBase):
             self.ny_timezone = ZoneInfo("America/New_York")
         except Exception:
             self.ny_timezone = _dt.timezone(_dt.timedelta(hours=-5))
-        # a small synthetic trade ledger: one OPEN SPY short strangle (renders Position/PnL)
-        self.trades_dict = {
-            "SPY_short_strangle_demo": {
-                "symbol": "SPY", "dte": 30, "s0": 600.0,
-                "options": [
-                    {"expiry": None, "op_type": "p", "strike": 555.0, "contracts": 1,
-                     "tr_type": "s", "closed": 0},
-                    {"expiry": None, "op_type": "c", "strike": 650.0, "contracts": 1,
-                     "tr_type": "s", "closed": 0},
-                ],
-                "delta_hedging_log": [],
-            }
-        }
 
     # --- calendar ---
     @property
@@ -314,12 +342,6 @@ class DemoOPD(_DemoBase):
         }, index=idx)
         return atm.rename("atm_iv"), hist
 
-    # --- trade ledger (synthetic) ---
-    def fetch_trades_ledger(self, *a, **k):
-        return self.trades_dict
-
-    def print_trade_list(self, *a, **k):
-        return None
 
 
 def get_demo_pipeline(today=None):
