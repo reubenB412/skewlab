@@ -109,6 +109,15 @@ The curve shape is summarized by `RV(5)/RV(20)`, `RV(10)/RV(30)`, curvature
 inside a trailing window that ends on the observation being ranked, so future data cannot leak
 into the regime label.
 
-The forward implied curve is a different clock. Each point uses the option's actual calendar
-DTE `d` and integrated variance `σ_IV²·d/365`. The chart overlays levels for comparison, while
-its labels and hovers keep backward completed-session windows distinct from forward maturity.
+The forward implied curve is a different clock. Each aligned configured maturity—normally
+10/20/30/45/60/90/120/180D—uses the option's actual calendar DTE `d` and integrated variance
+`σ_IV²·d/365`. Valid points are sorted by actual DTE and connected as one forward ATM-IV curve.
+The main snapshot's actual-DTE ATF IV is added as a trusted anchor; it replaces a duplicate
+auxiliary point at the same DTE and becomes the fallback only when every auxiliary tenor is
+unavailable or date-misaligned. Stale tenor diagnostics are retained, but stale IV is never drawn.
+
+The estimator table follows the presentation semantics of the private
+`opd._format_display(..., axis=1)`: each estimator row is independently normalized through the
+`YlGnBu` scale, percentages show two decimals, negative values are red, and missing values are
+blank. The public implementation computes those styles locally with Pandas Styler and applies
+them inline to native Dash cells; it does not import OPD or depend on a Styler `<style>` block.

@@ -8,11 +8,104 @@ the no-Dash fallback.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 
 from . import analysis, theme
 from . import charts as charts_pkg
 from .data import CurveState
+
+
+def _opd_format_display_model(df, pct_cols=None, axis=0):
+    """Build the local Dash display model matching ``opd._format_display`` semantics.
+
+    Pandas Styler emits selector-based CSS in a ``<style>`` block, which is not reliable when
+    embedded through Dash Markdown. Compute Styler's cell context and carry the resulting colours
+    into the native Dash table as inline styles instead.
+    """
+    frame = pd.DataFrame(df).copy()
+    pct_cols = [col for col in (pct_cols or []) if col in frame.columns]
+    numeric_cols = frame.select_dtypes(include=[np.number]).columns.tolist()
+    date_cols = frame.select_dtypes(include=["datetime", "datetimetz"]).columns.tolist()
+    fmt = {}
+    for col in frame.columns:
+        if col in pct_cols and col in numeric_cols:
+            fmt[col] = "{:.2%}"
+        elif col in numeric_cols:
+            fmt[col] = "{:.2f}"
+        elif col in date_cols:
+            fmt[col] = lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else ""
+        else:
+            fmt[col] = "{}"
+
+    def red_if_negative(value):
+        return "color: red" if isinstance(value, (int, float)) and value < 0 else ""
+
+    styled = (
+        frame.style
+        .format(fmt, na_rep="")
+        .background_gradient(cmap="YlGnBu", axis=axis, subset=numeric_cols)
+        .applymap(red_if_negative)
+    )
+    styled._compute()
+
+    rows = []
+    for row_no, (index, row) in enumerate(frame.iterrows()):
+        cells = []
+        for col_no, col in enumerate(frame.columns):
+            value = row[col]
+            if pd.isna(value):
+                text = ""
+                cell_style = {"backgroundColor": "#fff", "color": "#374151"}
+            else:
+                if col in pct_cols and col in numeric_cols:
+                    text = f"{float(value):.2%}"
+                elif col in numeric_cols:
+                    text = f"{float(value):.2f}"
+                elif col in date_cols:
+                    text = pd.Timestamp(value).strftime("%Y-%m-%d")
+                else:
+                    text = str(value)
+                props = dict(styled.ctx.get((row_no, col_no), ()))
+                cell_style = {
+                    "backgroundColor": props.get("background-color", "#fff"),
+                    "color": (
+                        "red"
+                        if col in numeric_cols and float(value) < 0
+                        else props.get("color", "#374151")
+                    ),
+                }
+            cells.append({"text": text, "style": cell_style})
+        rows.append({"index": str(index), "cells": cells})
+    return {
+        "column_name": str(frame.columns.name or ""),
+        "index_name": str(frame.index.name or ""),
+        "columns": [str(col) for col in frame.columns],
+        "rows": rows,
+    }
+
+
+def _opd_format_display_table(html, df, pct_cols=None, axis=0):
+    """Render the Styler-derived model as semantic Dash HTML with inline cell colours."""
+    model = _opd_format_display_model(df, pct_cols=pct_cols, axis=axis)
+    header = html.Thead([
+        html.Tr([
+            html.Th(model["column_name"], scope="col", className="rv-index-head"),
+            *[html.Th(col, scope="col") for col in model["columns"]],
+        ]),
+        html.Tr([
+            html.Th(model["index_name"], scope="col", className="rv-index-name"),
+            *[html.Th("") for _ in model["columns"]],
+        ]),
+    ])
+    body = html.Tbody([
+        html.Tr([
+            html.Th(row["index"], scope="row", className="rv-row-head"),
+            *[html.Td(cell["text"], style=cell["style"]) for cell in row["cells"]],
+        ])
+        for row in model["rows"]
+    ])
+    return html.Div(html.Table([header, body]), className="rv-styler")
 
 
 def _figures(snap, cs):
@@ -32,7 +125,7 @@ def _figures(snap, cs):
 
 def build_app(snap):
     import dash
-    from dash import dash_table, dcc, html
+    from dash import dcc, html
     from dash.dependencies import Input, Output, State
 
     cfg = snap.cfg
@@ -203,38 +296,15 @@ def build_app(snap):
         ], className="rv-metric-grid")
 
         table = rv_state.estimator_table.copy()
-        display = table.mul(100.0)
-        display.insert(0, "RV Rolling", display.index.astype(str))
-        for col in table.columns:
-            display[col] = display[col].map(lambda x: "—" if _finite(x) is None else f"{float(x):.2f}%")
-        display = display.rename(columns={c: f"{int(c)}d" for c in table.columns})
-        rv_table = dash_table.DataTable(
-            columns=[{"name": "RV Rolling", "id": "RV Rolling"}] +
-                    [{"name": f"{int(c)}d", "id": f"{int(c)}d"} for c in table.columns],
-            data=display.to_dict("records"), fixed_columns={"headers": True, "data": 1},
-            style_table={"overflowX": "auto", "border": "1px solid #e8edf3",
-                         "borderRadius": "10px"},
-            style_cell={"fontFamily": "Inter", "fontSize": "11.5px", "padding": "7px 10px",
-                        "textAlign": "right", "minWidth": "72px", "border": "none",
-                        "borderBottom": "1px solid #f1f5f9"},
-            style_header={"fontWeight": 700, "backgroundColor": "#f1f5f9"},
-            style_cell_conditional=[{"if": {"column_id": "RV Rolling"}, "textAlign": "left",
-                                     "fontWeight": 600, "minWidth": "190px"}],
-            style_data_conditional=[
-                {"if": {"filter_query": "{RV Rolling} = 'Mean Volatility'"},
-                 "fontWeight": 800, "backgroundColor": "#f1f5f9"},
-                {"if": {"filter_query": "{RV Rolling} = 'Mean Intra'"},
-                 "fontWeight": 750, "backgroundColor": "#f8fafc"},
-                {"if": {"filter_query": "{RV Rolling} = 'Mean C-C'"},
-                 "fontWeight": 750, "backgroundColor": "#f8fafc"},
-                {"if": {"filter_query": "{RV Rolling} = 'HF Total RV'"},
-                 "fontWeight": 800, "color": "#0f766e", "backgroundColor": "#ecfdf5"},
-            ],
+        rv_table = _opd_format_display_table(
+            html, table, pct_cols=list(table.columns), axis=1
         )
 
         warnings = [html.Div(f"⚠ {w}") for w in rv_state.warnings]
         warning_box = (html.Div(warnings, style={"fontSize": "11px", "color": "#92400e",
-                                                "background": "#fffbeb", "padding": "8px 10px",
+                                                "background": "#fffbeb",
+                                                "border": "1px solid #fde68a",
+                                                "padding": "8px 10px",
                                                 "borderRadius": "8px", "marginTop": "10px"})
                        if warnings else None)
         meta = rv_state.metadata
@@ -244,31 +314,35 @@ def build_app(snap):
             f"{meta.get('percentile_method', 'trailing history')}. Settled sessions only."
         )
         rv_fig = charts_pkg.rv_term_structure.make(snap, CurveState.market(snap))
-        rv_term_section = html.Div([
-            html.Div([html.Div("Realised-vol regime & term structure",
-                              style={"fontWeight": 800, "fontSize": "15px"}),
-                      html.Div(f"{sm.get('regime', 'RV regime unavailable')} · "
-                               f"{sm.get('regime_source', 'HF total')}",
-                               style={"fontWeight": 700, "fontSize": "12px", "color": "#fbbf24"})],
-                     style={"background": "#0f172a", "color": "#fff", "padding": "12px 16px",
-                            "display": "flex", "justifyContent": "space-between", "flexWrap": "wrap"}),
+        summary_card = html.Div([
             html.Div([
-                html.Div("1 · Realised-vol regime summary", style={"fontWeight": 800,
-                                                                    "fontSize": "13px",
-                                                                    "marginBottom": "10px"}),
-                movement, metrics,
-                html.Div(source_line, style={"fontSize": "10.5px", "color": "#64748b",
-                                             "marginTop": "10px"}),
-                warning_box,
-                html.Div("2 · Current RV estimator term structure",
-                         style={"fontWeight": 800, "fontSize": "13px", "margin": "18px 0 10px"}),
-                rv_table,
-                html.Div("3 · RV versus IV term structure",
-                         style={"fontWeight": 800, "fontSize": "13px", "margin": "18px 0 2px"}),
-                dcc.Graph(figure=rv_fig, config=_gcfg) if rv_fig is not None else
-                html.Div("Term-structure chart unavailable.", style={"padding": "20px"}),
-            ], style={"padding": "15px 16px 6px"}),
-        ], className="mt-card", style={"marginBottom": "14px", "overflow": "hidden"})
+                html.Div("Realised-vol regime & term structure",
+                         style={"fontWeight": 800, "fontSize": "15px", "color": "#0f172a"}),
+                html.Div(f"{sm.get('regime', 'RV regime unavailable')} · "
+                         f"{sm.get('regime_source', 'HF total')}",
+                         style={"fontWeight": 700, "fontSize": "12px", "color": "#d97706"}),
+            ], style={"display": "flex", "gap": "16px", "marginBottom": "12px",
+                      "alignItems": "center", "justifyContent": "space-between",
+                      "flexWrap": "wrap"}),
+            movement, metrics,
+            html.Div(source_line, style={"fontSize": "10.5px", "color": "#64748b",
+                                         "marginTop": "10px"}),
+            warning_box,
+        ], className="mt-card", style={"marginBottom": "14px", "padding": "18px"})
+        table_card = html.Div([
+            html.Div("Current RV estimator term structure",
+                     style={"fontWeight": 800, "fontSize": "15px", "color": "#0f172a",
+                            "marginBottom": "10px"}),
+            rv_table,
+        ], className="mt-card", style={"marginBottom": "14px", "padding": "18px",
+                                         "overflow": "hidden"})
+        chart_card = html.Div(
+            dcc.Graph(figure=rv_fig, config=_gcfg) if rv_fig is not None else
+            html.Div("Term-structure chart unavailable.",
+                     style={"color": "#64748b", "padding": "20px"}),
+            className="mt-card", style={"marginBottom": "14px", "padding": "6px 8px 8px"},
+        )
+        rv_term_section = html.Div([summary_card, table_card, chart_card])
 
     _VH_ON = charts_pkg.vol_history.has_history(snap) or charts_pkg.vol_history.has_estimators(snap)
     volhist_section = None
@@ -342,6 +416,16 @@ def build_app(snap):
   .rc-slider-handle { border-color:#2f6feb !important; opacity:1 !important; }
   .rc-slider-handle:hover { border-color:#2f6feb !important; }
   .rv-metric-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+  .rv-styler { width:100%; overflow-x:auto; }
+  .rv-styler table { width:100%; min-width:860px; border-collapse:collapse; font-size:11.5px;
+                     table-layout:fixed; }
+  .rv-styler th, .rv-styler td { padding:7px 10px; border-bottom:1px solid #edf1f5;
+                                 text-align:right; white-space:nowrap; }
+  .rv-styler thead th { color:#334155; background:#f8fafc; font-weight:700; }
+  .rv-styler th:first-child { width:230px; min-width:230px; }
+  .rv-styler .rv-index-head, .rv-styler .rv-index-name { text-align:center; }
+  .rv-styler tbody th { color:#334155; background:#fff; font-weight:600; text-align:left;
+                        position:sticky; left:0; z-index:2; }
   @media (max-width: 1050px) { .rv-metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
   @media (max-width: 660px) { .rv-metric-grid { grid-template-columns:1fr; } }
 </style></head>

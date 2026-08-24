@@ -38,6 +38,7 @@ class TermBundle:
     spot: float
     dte: float
     expiry: pd.Timestamp
+    obs_date: Optional[pd.Timestamp] = None
     hist: Optional[pd.DataFrame] = None
 
 
@@ -201,6 +202,49 @@ def _chain_expiry(chain, obs_date):
     return pd.to_datetime(obs_date) + pd.Timedelta(days=int(chain["dte"].dropna().iloc[0]))
 
 
+def _normalise_session(value):
+    """Normalise a date-like value to one timezone-naive session date."""
+    try:
+        ts = pd.Timestamp(value)
+        if pd.isna(ts):
+            return None
+        if ts.tzinfo is not None:
+            ts = ts.tz_convert("America/New_York").tz_localize(None)
+        return ts.normalize()
+    except Exception:
+        return None
+
+
+def _chain_observation_date(chain, fallback=None):
+    """Resolve the session represented by a chain while retaining explicit provenance."""
+    if chain is not None and not getattr(chain, "empty", True):
+        for key in ("observation_date", "quote_date", "trade_date", "date"):
+            attr_value = getattr(chain, "attrs", {}).get(key)
+            if attr_value is not None:
+                resolved = _normalise_session(attr_value)
+                if resolved is not None:
+                    return resolved
+            if key not in chain.columns:
+                continue
+            values = pd.to_datetime(chain[key], errors="coerce").dropna()
+            if len(values):
+                return _normalise_session(values.iloc[-1])
+        try:
+            dte = pd.to_numeric(chain["dte"], errors="coerce").dropna()
+            if len(dte):
+                expiry = _chain_expiry(chain, fallback)
+                return _normalise_session(expiry - pd.Timedelta(days=float(dte.median())))
+        except Exception:
+            pass
+    return _normalise_session(fallback)
+
+
+def _same_session(left, right):
+    left = _normalise_session(left)
+    right = _normalise_session(right)
+    return left is not None and right is not None and left == right
+
+
 def _core(chain, day_count):
     df = chain
     if df is None or len(df) == 0:
@@ -349,7 +393,8 @@ def _build_bundle(chain, cfg, day_count):
     return dict(poly=model.fit_skew(grid_strikes, grid_vols, model_name=cfg.skew_model,
                                     degree=cfg.poly_degree, forward=fwd, T=t),
                 grid_strikes=grid_strikes, forward=fwd, atf=atf, one_sd=one_sd, t=t, r=r,
-                q=q, spot=spot, dte=dte, expiry=_chain_expiry(chain, cfg.date))
+                q=q, spot=spot, dte=dte, expiry=_chain_expiry(chain, cfg.date),
+                obs_date=_chain_observation_date(chain, cfg.date))
 
 
 def _us_market_open_now(opd):
@@ -665,39 +710,59 @@ def _hf_session_metadata(intraday, rv_index, opd, sample_minutes):
 
 
 def _fetch_rv_iv_curve(cfg, cvt, opd, term_bundles):
-    """Current ATF IV term structure from actual backend option chains."""
+    """ATF IV term structure, admitting only chains aligned to the main snapshot session."""
     rows, warnings = [], []
+    expected_obs = _normalise_session(cfg.date)
     existing = {int(b.tenor): b for b in (term_bundles or [])}
-    for requested in tuple(dict.fromkeys(int(x) for x in cfg.rv_iv_tenors)):
+    for requested_tenor in tuple(dict.fromkeys(int(x) for x in cfg.rv_iv_tenors)):
         try:
-            if requested in existing:
-                b = existing[requested]
+            if requested_tenor in existing:
+                b = existing[requested_tenor]
                 actual_dte, expiry, atf = float(b.dte), pd.Timestamp(b.expiry), float(b.atf)
+                obs_date = (
+                    _normalise_session(getattr(b, "obs_date", None))
+                    or _normalise_session(expiry - pd.Timedelta(days=actual_dte))
+                )
             else:
-                tc = (_intraday_chain(cfg, cvt, opd, requested, reset=False)
+                tc = (_intraday_chain(cfg, cvt, opd, requested_tenor, reset=False)
                       if cfg.use_intraday else None)
                 if tc is None:
                     tc = cvt.get_quick_option_chain(
-                        cfg.symbol, cfg.date, None, target_dte=requested,
+                        cfg.symbol, cfg.date, None, target_dte=requested_tenor,
                         size=cfg.size, verbose=False)
                 tc = _current_chain(tc)
                 _, _, _, _, actual_dte, atf, _ = _core(tc, cfg.day_count)
                 expiry = _chain_expiry(tc, cfg.date)
+                obs_date = _chain_observation_date(tc, cfg.date)
+            aligned = _same_session(obs_date, expected_obs)
+            if not aligned:
+                warnings.append(
+                    f"IV {requested_tenor}D tenor rejected: chain observation "
+                    f"{obs_date.date() if obs_date is not None else 'unknown'} does not match "
+                    f"main snapshot "
+                    f"{expected_obs.date() if expected_obs is not None else cfg.date}."
+                )
             rows.append({
-                "requested_tenor": requested,
+                "requested_tenor": requested_tenor,
                 "actual_dte": float(actual_dte),
                 "expiry": pd.Timestamp(expiry),
-                "atf_iv": float(atf),
+                "observation_date": obs_date,
+                "is_aligned": bool(aligned),
+                "atf_iv": float(atf) if aligned else np.nan,
                 "calendar_year_fraction": float(actual_dte) / float(cfg.day_count),
-                "integrated_variance": float(atf) ** 2 * float(actual_dte) / float(cfg.day_count),
+                "integrated_variance": (
+                    float(atf) ** 2 * float(actual_dte) / float(cfg.day_count)
+                    if aligned else np.nan
+                ),
             })
         except Exception as exc:
             rows.append({
-                "requested_tenor": requested, "actual_dte": np.nan,
-                "expiry": pd.NaT, "atf_iv": np.nan,
+                "requested_tenor": requested_tenor, "actual_dte": np.nan,
+                "expiry": pd.NaT, "observation_date": pd.NaT, "is_aligned": False,
+                "atf_iv": np.nan,
                 "calendar_year_fraction": np.nan, "integrated_variance": np.nan,
             })
-            warnings.append(f"IV {requested}D tenor unavailable: {exc}")
+            warnings.append(f"IV {requested_tenor}D tenor unavailable: {exc}")
     curve = pd.DataFrame(rows).set_index("requested_tenor") if rows else pd.DataFrame()
     return curve, warnings
 

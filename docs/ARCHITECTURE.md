@@ -48,6 +48,13 @@ skewlab/
   integrated variance. The chart labels both rather than pretending they are the same clock.
 - **Partial-session safety.** Daily high-frequency variance carries an explicit completion flag;
   rolling curves discard incomplete sessions before any window is formed.
+- **As-of-safe forward IV.** Every auxiliary ATM-IV tenor retains its requested tenor, actual DTE,
+  expiry, observation date, alignment flag, calendar year fraction, and integrated variance.
+  Misaligned rows remain available for diagnostics but their IV/variance values are cleared and
+  omitted from the chart. The main snapshot supplies a trusted aligned anchor/fallback.
+- **Local display semantics.** The public Dash app asks Pandas Styler for the same row-wise
+  `YlGnBu` cell context as private `opd._format_display(axis=1)`, then places the computed colours
+  directly on semantic `html.Td` cells. It imports neither OPD nor emitted Styler HTML/CSS.
 
 ## The data-source boundary
 

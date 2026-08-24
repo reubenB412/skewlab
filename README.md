@@ -36,10 +36,11 @@ check.*
 
 ![SPY realised-vol regime and RV/IV term structure](docs/rv_term_structure_demo.png)
 
-*The new three-layer RV section: comparable implied-versus-realised daily movement, transparent
-front-end shape percentiles and regime classification, the current estimator table, and the
-5–180-session backward RV curve against 10–180-day forward ATM IV. The demo deliberately ends
-in a compressed front-end RV regime; its incomplete final session is excluded.*
+*The three-layer RV section: comparable implied-versus-realised daily movement, transparent
+front-end shape percentiles and regime classification, a row-wise `YlGnBu`-shaded estimator
+table, and the 5–180-session backward RV curve against the complete 10–180-day forward ATM-IV
+maturity curve. The demo deliberately ends in a compressed front-end RV regime; its incomplete
+final session is excluded.*
 
 ![SPY IV history & regime](docs/iv_history_regime_demo.png)
 
@@ -98,7 +99,11 @@ spreadsheet and eyeballing.
   over an adjustable start date.
 - **RV regime and term structure.** Recovers daily variance, excludes incomplete sessions,
   aggregates rolling RV with variance/RMS arithmetic, rebases annualization from source to
-  display basis, and compares 5–180-session RV with 10–180-day forward ATM IV.
+  display basis, and compares 5–180-session RV with the complete aligned 10–180-day forward ATM-IV
+  curve. The estimator table locally reproduces the row-wise `YlGnBu`, two-decimal percentage,
+  blank-NaN, and red-negative presentation semantics of private `opd._format_display(axis=1)`
+  without importing OPD. The main snapshot IV is a trusted aligned anchor and fallback, not the
+  normal entire implied curve.
 - **Position analytics.** Optional manual book with analytic
   greeks, a P&L decomposition (realized-vol / vega / delta), and payoff context.
 - **Bounded LLM context.** `print_llm_context(snap)` emits a paste-ready Markdown/CSV briefing

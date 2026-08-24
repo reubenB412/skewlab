@@ -202,7 +202,13 @@ class DemoCVT(_DemoBase):
             "dte": dte, "T": T, "implied_vol": iv, "iv_call": iv, "iv_put": iv,
             "mid_call": call, "mid_put": put, "straddle": call + put,
             "midpoint": np.abs(call - put), "root": str(symbol),
+            "observation_date": obs,
         }, index=pd.Index(ks, name="strike"))
+        df.attrs.update({
+            "source": "synthetic offline demo",
+            "requested_date": str(obs.date()),
+            "observation_date": str(obs.date()),
+        })
         if verbose:
             print(f"[demo] {symbol} chain {obs.date()} {dte}DTE spot={spot:,.2f} "
                   f"ATF={atf*100:.1f}% ({len(df)} strikes)")
