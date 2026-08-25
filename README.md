@@ -34,13 +34,23 @@ log-normal sheet. It is left-skewed, with the mode above the forward and a fatte
 tail. The density stays non-negative everywhere, so the smile passes the butterfly no-arbitrage
 check.*
 
-![SPY realised-vol regime and RV/IV term structure](docs/rv_term_structure_demo.png)
+![SPY realised-vol regime summary](docs/rv_regime_summary_demo.png)
 
-*The three-layer RV section: comparable implied-versus-realised daily movement, transparent
-front-end shape percentiles and regime classification, a row-wise `YlGnBu`-shaded estimator
-table, and the 5–180-session backward RV curve against the complete 10–180-day forward ATM-IV
-maturity curve. The demo deliberately ends in a compressed front-end RV regime; its incomplete
-final session is excluded.*
+*The realised-vol regime summary compares implied and recent realised daily movement, then makes
+the front-end RV slopes, curvature, acceleration, and historical percentiles explicit. The demo
+deliberately finishes in a compressed front-end regime; its incomplete final session is excluded.*
+
+![SPY RV estimator term structure](docs/rv_estimator_term_structure_demo.png)
+
+*The current 5–180-session estimator term structure. Each estimator row is independently shaded
+from light yellow to dark blue with the local `YlGnBu` presentation semantics, while all values
+remain readable as two-decimal annualised percentages.*
+
+![SPY RV versus forward ATM-IV term structure](docs/rv_vs_atm_iv_term_structure_demo.png)
+
+*Backward-looking RV curves against the complete aligned 10–180-day forward ATM-IV maturity
+curve. Blue diamonds identify ATM IV; the main snapshot is retained as an aligned anchor and
+fallback rather than replacing the normal multi-maturity curve.*
 
 ![SPY IV history & regime](docs/iv_history_regime_demo.png)
 
