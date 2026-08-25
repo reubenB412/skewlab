@@ -34,17 +34,26 @@ log-normal sheet. It is left-skewed, with the mode above the forward and a fatte
 tail. The density stays non-negative everywhere, so the smile passes the butterfly no-arbitrage
 check.*
 
+### Realised-vol regime summary
+
 ![SPY realised-vol regime summary](docs/rv_regime_summary_demo.png)
 
 *The realised-vol regime summary compares implied and recent realised daily movement, then makes
 the front-end RV slopes, curvature, acceleration, and historical percentiles explicit. The demo
 deliberately finishes in a compressed front-end regime; its incomplete final session is excluded.*
 
+### RV estimator term structure
+
 ![SPY RV estimator term structure](docs/rv_estimator_term_structure_demo.png)
 
 *The current 5–180-session estimator term structure. Each estimator row is independently shaded
 from light yellow to dark blue with the local `YlGnBu` presentation semantics, while all values
-remain readable as two-decimal annualised percentages.*
+remain readable as two-decimal annualised percentages. It helps identify intraday volatility
+spikes and movement at the front of the RV term structure—an early-tremor detector that can flag
+conditions worth investigating for a possible long-straddle position. It is descriptive context,
+not a standalone trading signal.*
+
+### RV versus forward ATM-IV term structure
 
 ![SPY RV versus forward ATM-IV term structure](docs/rv_vs_atm_iv_term_structure_demo.png)
 
