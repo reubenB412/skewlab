@@ -125,9 +125,6 @@ spreadsheet and eyeballing.
   normal entire implied curve.
 - **Position analytics.** Optional manual book with analytic
   greeks, a P&L decomposition (realized-vol / vega / delta), and payoff context.
-- **Bounded LLM context.** `print_llm_context(snap)` emits a paste-ready Markdown/CSV briefing
-  from the canonical snapshot without dumping an entire option chain.
-
 Everything is wrapped in a Dash dashboard with live sliders per standard-deviation node,
 scenario presets, and a data-inspection layer that exposes every intermediate DataFrame.
 

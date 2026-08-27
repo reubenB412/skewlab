@@ -27,7 +27,7 @@ skewlab/
                per SD node and scenario presets.
   pipeline/    the data-source boundary (see below).
   run.py       entry point: build config -> fetch snapshot -> serve dashboard.
-  inspect.py   structured inspection plus a bounded Markdown/CSV LLM-context export.
+  inspect.py   structured inspection of snapshot data and intermediate frames.
   positions.py pure helpers for an optional manually supplied position book.
 ```
 

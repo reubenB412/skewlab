@@ -45,7 +45,12 @@ def _opd_format_display_model(df, pct_cols=None, axis=0):
         frame.style
         .format(fmt, na_rep="")
         .background_gradient(cmap="YlGnBu", axis=axis, subset=numeric_cols)
-        .applymap(red_if_negative)
+    )
+    # Styler.applymap was renamed in pandas 2.1 and removed in pandas 3.0.
+    styled = (
+        styled.map(red_if_negative)
+        if hasattr(styled, "map")
+        else styled.applymap(red_if_negative)
     )
     styled._compute()
 

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from skewlab.config import RunConfig
 from skewlab.run import main
-from skewlab.inspect import print_llm_context
 
 # =====================================================================================
 # INPUTS
@@ -61,14 +60,9 @@ SHARES    = None
 # POSITIONS = [(555, "P", -1), (650, "C", -1)]   # e.g. a short strangle
 # SHARES = 0
 
-# Set True for a paste-ready, bounded Markdown/CSV context dump instead of serving Dash.
-EXPORT_LLM_CONTEXT = False
-
 if __name__ == "__main__":
     cfg.positions, cfg.shares = POSITIONS, (SHARES or 0)
-    snap = main(cfg, serve=not EXPORT_LLM_CONTEXT)
-    if EXPORT_LLM_CONTEXT:
-        print_llm_context(snap)
+    snap = main(cfg)
 
     # After the run, `snap` holds the whole immutable context. Inspect any dataframe with:
     #     from skewlab.inspect import collect_run_data, describe_run_data
