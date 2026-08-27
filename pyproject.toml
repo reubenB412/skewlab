@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Arbitrage-aware option skew & volatility dashboard for liquid listed markets — equities, commodities, rates (SVI, Breeden–Litzenberger, RV-vs-IV)."
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [{ name = "Noah" }]
+authors = [{ name = "Reuben" }]
 keywords = ["options", "volatility", "skew", "SVI", "quantitative-finance", "cross-asset",
             "commodities", "rates", "dash", "plotly"]
 classifiers = [
