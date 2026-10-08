@@ -19,9 +19,7 @@ from . import model
 from . import rv as rv_model
 
 
-# =====================================================================================
 # State objects
-# =====================================================================================
 @dataclass
 class TermBundle:
     """A self-contained skew curve for one expiry (its own forward/ATF/grid/poly)."""
@@ -96,7 +94,7 @@ class Snapshot:
     # previous-day at-the-forward (for the prev-curve ATMF marker)
     prev_forward: Optional[float] = None
     prev_atf: Optional[float] = None
-    # RV-vs-IV comparison (realized-implied): fair vol/straddle from yesterday's-close
+    # RV-vs-IV comparison (realised-implied): fair vol/straddle from yesterday's-close
     # composite RV, vs the market at the day's open and now. None -> section hidden.
     rv_iv: Optional[float] = None               # composite RV (decimal), most recent close
     rv_straddle: Optional[float] = None          # fair ATMF straddle implied by rv_iv ($)
@@ -161,9 +159,7 @@ class CurveState:
         return cls.from_grid(snap, grid, s["sl"] / 100.0, s["sr"] / 100.0, True)
 
 
-# =====================================================================================
 # Pipeline helpers
-# =====================================================================================
 def _third_friday(year, month):
     first = pd.Timestamp(year, month, 1)
     first_fri = first + pd.Timedelta(days=(4 - first.weekday()) % 7)
@@ -280,7 +276,7 @@ def _core(chain, day_count):
         s = pd.to_numeric(df[col], errors="coerce").dropna()
         return float(s.median()) if len(s) else default
 
-    # spot / rate / div — robust to a NaN on the chosen ATM row (else fwd->NaN blanks the chart)
+    # Use nearby rows if the chosen ATM row has a missing spot, rate, or dividend.
     spot = _row_num("S")
     if not np.isfinite(spot) or spot <= 0:
         spot = _col_median("S", float("nan"))
@@ -299,8 +295,8 @@ def _core(chain, day_count):
     t = dte / day_count
     fwd = spot * np.exp((r - q) * t)
 
-    # ATF vol — robust to a single bad ATM quote (e.g. an intraday 3% print when the smile
-    # is ~13%). Anchor on the median IV of the strikes NEAREST the forward; only keep the
+    # Anchor ATF on the median IV nearest the forward so one bad quote (for example, a 3%
+    # intraday print in a ~13% smile) cannot dominate. Only keep the
     # chosen row's IV if it's present, positive, and not a low-outlier vs those neighbours.
     iv_all = pd.to_numeric(df["implied_vol"], errors="coerce")
     iv_all = iv_all[iv_all > 0].dropna()
@@ -349,10 +345,10 @@ def _atm_straddle(chain):
 
 
 def _rv_benchmark(cfg, cvt, iv_rv):
-    """Composite realized vol as of the most recent close -> (sigma, asof_date_str) or
+    """Composite realised vol as of the most recent close -> (sigma, asof_date_str) or
     (None, None). Reuses the already-built `iv_rv` series when present (no extra fetch);
     otherwise pulls a fresh composite RV (price-only, so it works even for symbols with no
-    EOD options coverage). The last value = yesterday's-close realized vol -- the fair vol
+    EOD options coverage). The last value = yesterday's-close realised vol -- the fair vol
     the market 'should' be pricing today."""
     ser = None
     if iv_rv is not None and len(pd.Series(iv_rv).dropna()):
@@ -365,7 +361,7 @@ def _rv_benchmark(cfg, cvt, iv_rv):
             if rvdf is not None and "Mean" in getattr(rvdf, "columns", []):
                 ser = rvdf["Mean"].astype(float).dropna()
         except Exception as e:
-            print(f"[rv-compare] realized-vol benchmark unavailable: {e}")
+            print(f"[rv-compare] realised-vol benchmark unavailable: {e}")
     if ser is None or not len(ser):
         return None, None
     # "previous day's close": exclude a partial current-day bar if one snuck in (a live
@@ -913,9 +909,7 @@ def _fetch_rv_term_state(cfg, cvt, opd, spot, atf, term_bundles):
     return state
 
 
-# =====================================================================================
-# The one entry point that builds everything
-# =====================================================================================
+# Snapshot assembly
 def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
     # normalise date (None -> today)
     if cfg.date is None:
@@ -1001,7 +995,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
             tag = "same exp" if matched else f"exp {prev_exp}"
             prev_label = f"{prev_obs.date()} · {prev_dte:.0f}DTE · {tag}"
 
-    # --- IV history + realized vol ---
+    # --- IV history + realised vol ---
     iv_atm = iv_history = iv_rv = None
     rv_estimators = None
     iv_dte = int(getattr(cfg, "iv_hist_target_dte", None) or cfg.target_dte)
@@ -1046,7 +1040,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
                     iv_rv = rvdf["Mean"].astype(float)
                     rv_estimators = rvdf          # full estimator frame for the RV-stack chart
             except Exception as e:
-                print(f"[iv-history] realized-vol overlay unavailable: {e}")
+                print(f"[iv-history] realised-vol overlay unavailable: {e}")
 
     # --- term-structure curves ---
     term_bundles = []
@@ -1096,7 +1090,7 @@ def fetch_snapshot(cfg, cvt, opd) -> Snapshot:
     snap_positions = list(cfg.positions or [])
     snap_shares = float(cfg.shares or 0.0)
 
-    # --- RV vs IV (realized-implied): fair vol/straddle from the most-recent-close
+    # --- RV vs IV (realised-implied): fair vol/straddle from the most-recent-close
     #     composite RV, vs the market straddle now and at the day's open ---
     rv_iv = rv_straddle = rv_asof = rv_lookback = None
     open_atf = open_straddle = open_capture_ts = None

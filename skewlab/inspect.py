@@ -48,8 +48,8 @@ def iv_history_frame(snap, include_today=True):
 
     Columns (all in vol points / %):
         atm_implied_%  — ATM implied vol            (top-left blue, top-right line)
-        realized_%     — realized vol               (top-left gray)
-        vrp_pts        — implied − realized          (top-left green fill / carry)
+        realised_%     — realised vol               (top-left gray)
+        vrp_pts        — implied − realised          (top-left green fill / carry)
         rr25_pts       — 25Δ risk reversal (put−call)(bottom-left red, bottom-right y)
         rr10_pts       — 10Δ risk reversal          (bottom-left orange dotted)
         seq            — 0..n-1 plot order (the bottom-right scatter colour)
@@ -66,8 +66,8 @@ def iv_history_frame(snap, include_today=True):
     df["atm_implied_%"] = atm.values
 
     if snap.iv_rv is not None:
-        df["realized_%"] = (snap.iv_rv.reindex(atm.index) * 100.0).values
-        df["vrp_pts"] = df["atm_implied_%"] - df["realized_%"]
+        df["realised_%"] = (snap.iv_rv.reindex(atm.index) * 100.0).values
+        df["vrp_pts"] = df["atm_implied_%"] - df["realised_%"]
 
     cols = snap.iv_history.columns if snap.iv_history is not None else []
     if {"25d_put", "25d_call"}.issubset(cols):
@@ -85,9 +85,9 @@ def iv_history_frame(snap, include_today=True):
         row["atm_implied_%"] = snap.atf * 100.0
         if "rr25_pts" in df.columns:
             row["rr25_pts"] = _today_rr25(snap)
-        if "realized_%" in df.columns and df["realized_%"].dropna().size:
-            row["realized_%"] = float(df["realized_%"].dropna().iloc[-1])
-            row["vrp_pts"] = row["atm_implied_%"] - row["realized_%"]
+        if "realised_%" in df.columns and df["realised_%"].dropna().size:
+            row["realised_%"] = float(df["realised_%"].dropna().iloc[-1])
+            row["vrp_pts"] = row["atm_implied_%"] - row["realised_%"]
         row["seq"] = len(df)
         row["is_today"] = True
         df.loc[pd.to_datetime(snap.date)] = row
@@ -100,7 +100,7 @@ def vol_history_frame(snap):
 
     Joins (each keeps its own columns):
         iv_atm      -> 'atm_iv'        (daily ATM implied vol, decimals)
-        iv_rv       -> 'realized_vol'  (daily realized vol, decimals)
+        iv_rv       -> 'realised_vol'  (daily realised vol, decimals)
         iv_history  -> raw bucket cols ('10d_put','25d_put','atm','25d_call','10d_call')
 
     This is the RAW merge of the underlying series on one timeline. (For the charts'
@@ -111,7 +111,7 @@ def vol_history_frame(snap):
     if snap.iv_atm is not None and len(snap.iv_atm):
         frames.append(snap.iv_atm.rename("atm_iv").to_frame())
     if snap.iv_rv is not None and len(snap.iv_rv):
-        frames.append(snap.iv_rv.rename("realized_vol").to_frame())
+        frames.append(snap.iv_rv.rename("realised_vol").to_frame())
     if snap.iv_history is not None and not getattr(snap.iv_history, "empty", True):
         frames.append(snap.iv_history.copy())
 
@@ -260,7 +260,7 @@ def plot_market_iv_diagnosis(snap, band_pct=0.06):
 
 def rv_compare_frame(snap):
     """The RV-vs-IV scorecard as a 3-row DataFrame: the RV-implied fair value (from the
-    most-recent-close composite realized vol) vs the market at the day's OPEN and NOW.
+    most-recent-close composite realised vol) vs the market at the day's OPEN and NOW.
 
     Columns: iv_% (ATM implied vol), straddle ($ ATM-forward), when (timestamp/date).
     Empty frame if the RV comparison wasn't computed (show_rv_compare off, or no RV)."""

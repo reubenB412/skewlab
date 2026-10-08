@@ -23,7 +23,7 @@ def make(snap, cs, title_suffix=""):
         x=labels, y=vals, measure=measure, connector=dict(line=dict(color="lightgray")),
         decreasing=dict(marker=dict(color="#d62728")), increasing=dict(marker=dict(color="#2ca02c")),
         totals=dict(marker=dict(color="#1f77b4"))))
-    sub = (f"Δ{b['days']:.0f}d · spot {b['dS']:+.2f} · realized-vol P&L (Γ+Θ) {b['realized_vol']:+,.0f} · "
+    sub = (f"Δ{b['days']:.0f}d · spot {b['dS']:+.2f} · realised-vol P&L (Γ+Θ) {b['realised_vol']:+,.0f} · "
            f"implied-vol P&L {b['vega']:+,.0f}")
     fig.update_layout(title=f"{snap.symbol} P&L decomposition {snap.date} vs {snap.prev_label}{title_suffix}",
                       xaxis_title=sub, yaxis_title="P&L ($)",

@@ -108,7 +108,7 @@ def metrics(snap, cs):
                              vpos=("long" if net['vega_pt'] > 0 else "short" if net['vega_pt'] < 0 else "flat"),
                              dpos=("long" if net['delta'] > 0 else "short" if net['delta'] < 0 else "flat"))
 
-    # --- RV vs IV: realized-implied fair value vs the market now / at the open ---
+    # --- RV vs IV: realised-implied fair value vs the market now / at the open ---
     m['rv'] = None
     rv_iv = getattr(snap, "rv_iv", None)
     if rv_iv is not None and np.isfinite(rv_iv):
@@ -179,11 +179,11 @@ def render_text(snap, cs):
             L.append(f"  25d RR {r['rr25']:+.1f} at {r['p_rr']:.0f}th pctile -- skew {r['skew_rich']}.")
     rv = m['rv']
     if rv:
-        L.append("IV vs REALIZED (fair value from most-recent-close composite RV)")
+        L.append("IV vs REALISED (fair value from most-recent-close composite RV)")
         L.append(f"  RV {rv['rv_iv']:.1f}% ({rv['rv_lookback']}td @ {rv['rv_asof']}) -> fair ATMF "
                  f"straddle {_fmt(rv['rv_straddle'])}.  Now: IV {rv['now_iv']:.1f}% / straddle "
                  f"{_fmt(rv['now_straddle'])}; VRP {rv['vrp_now']:+.1f} pts "
-                 f"({'IV over realized' if rv['rich'] else 'IV under realized'}"
+                 f"({'IV over realised' if rv['rich'] else 'IV under realised'}"
                  + (f", straddle {_fmt(rv['straddle_gap'])} vs fair" if rv['straddle_gap'] is not None else "")
                  + ").")
         if rv['open_iv'] is not None:
@@ -294,13 +294,13 @@ def render_html(snap, cs):
         gt = {"long": "good", "short": "bad", "flat": "neutral"}
         badges = [pill(f"Δ {net['delta']:+,.0f}", "neutral"), pill(f"Γ {p['gpos']}", gt[p['gpos']]),
                   pill(f"Vega {p['vpos']}", gt[p['vpos']]), pill(f"Θ {net['theta']:+,.0f}/day", "neutral")]
-        body = [html.Div(f"{p['gpos']} realized vol, {p['vpos']} implied vol.")]
+        body = [html.Div(f"{p['gpos']} realised vol, {p['vpos']} implied vol.")]
         b = p['pnl']
         if b:
-            drv = max([("realized vol", b['realized_vol']), ("implied vol", b['vega']),
+            drv = max([("realised vol", b['realised_vol']), ("implied vol", b['vega']),
                        ("delta", b['delta'] + b['share'])], key=lambda kv: abs(kv[1]))
             body.append(html.Div([pill(f"total {b['total']:+,.0f}", "good" if b['total'] >= 0 else "bad"),
-                        pill(f"realized {b['realized_vol']:+,.0f}", "neutral"),
+                        pill(f"realised {b['realised_vol']:+,.0f}", "neutral"),
                         pill(f"implied {b['vega']:+,.0f}", "neutral")], style={"marginTop": "6px"}))
             body.append(html.Div(f"Over {b['days']:.0f}d (spot {b['dS']:+.1f}); driver: {drv[0]}.",
                                  style={"marginTop": "2px", "color": "#555"}))
@@ -332,7 +332,7 @@ def render_html(snap, cs):
 
     rv = m['rv']
     if rv:
-        tone_vrp = "bad" if rv['vrp_now'] > 0 else "good"     # IV rich vs realized = expensive
+        tone_vrp = "bad" if rv['vrp_now'] > 0 else "good"     # IV rich vs realised = expensive
         rbadges = [pill(f"RV {rv['rv_iv']:.1f}% · {rv['rv_lookback']}td", "info"),
                    pill(f"VRP now {rv['vrp_now']:+.1f}", tone_vrp)]
         if rv['open_iv'] is not None:
@@ -342,14 +342,14 @@ def render_html(snap, cs):
                  html.Div(f"Now: IV {rv['now_iv']:.1f}% · straddle {_fmt(rv['now_straddle'])}"
                           + (f" ({_fmt(rv['straddle_gap'])} vs fair)" if rv['straddle_gap'] is not None else "")
                           + f". VRP {rv['vrp_now']:+.1f} pts — "
-                          + ("IV richer than realized." if rv['rich'] else "IV cheaper than realized."),
+                          + ("IV richer than realised." if rv['rich'] else "IV cheaper than realised."),
                           style={"marginTop": "4px"})]
         if rv['open_iv'] is not None:
             rbody.append(html.Div(f"Open ({rv['open_ts']}): IV {rv['open_iv']:.1f}% · straddle "
                                   f"{_fmt(rv['open_straddle'])}. Intraday drift {rv['drift_iv']:+.1f} pts"
                                   + (f", {_fmt(rv['straddle_drift'])} straddle" if rv['straddle_drift'] is not None else "")
                                   + ".", style={"marginTop": "4px", "color": "#555"}))
-        cards.append(card("RV vs IV · realized-implied fair value", "#0891b2", rbody, rbadges))
+        cards.append(card("RV vs IV · realised-implied fair value", "#0891b2", rbody, rbadges))
 
     cards.append(card("Trading implications · educational, not advice", "#6b7280",
                  html.Ul([html.Li(t, style={"marginBottom": "5px"}) for t in m['implications']],

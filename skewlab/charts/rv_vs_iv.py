@@ -1,10 +1,10 @@
-"""skewlab.charts.rv_vs_iv — realized-implied fair value vs the market (dumbbell).
+"""skewlab.charts.rv_vs_iv — realised-implied fair value vs the market (dumbbell).
 
 Two stacked number-lines. Top: implied vol (pts). Bottom: ATM-forward straddle ($).
-On each, the RV benchmark (fair value from the most-recent-close composite realized vol)
+On each, the RV benchmark (fair value from the most-recent-close composite realised vol)
 is a diamond; the market at the day's OPEN is a circle and NOW is a star, joined by a
 dotted line (the intraday drift). The thick grey bar spans RV -> now (the discrepancy /
-variance-risk premium the market is charging over realized).
+variance-risk premium the market is charging over realised).
 
 Pure: make(snap, cs) -> Figure or None. Does not react to the sliders (reacts=False).
 """
@@ -98,6 +98,6 @@ def make(snap, cs, **kw):
     panel(2, rv_str, open_str, now_str, "$", 2)
 
     fig.update_layout(template=theme.TEMPLATE, height=430, margin=dict(t=70, b=48, r=150),
-                      title=f"{snap.symbol} — realized-implied fair value vs market · {snap.date}",
+                      title=f"{snap.symbol} — realised-implied fair value vs market · {snap.date}",
                       legend=theme.LEGEND_SIDE)
     return fig

@@ -123,7 +123,7 @@ def make(snap, cs=None):
 
     target = state.metadata.get("target_basis", 252)
     fig.update_layout(
-        title=f"{snap.symbol} RV vs ATM IV term structure · {snap.date}",
+        title=f"RV vs ATM IV term structure · {snap.date}",
         template=theme.TEMPLATE,
         height=460,
         hovermode="x unified",

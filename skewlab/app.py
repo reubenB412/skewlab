@@ -114,7 +114,7 @@ def _opd_format_display_table(html, df, pct_cols=None, axis=0):
 
 
 def _figures(snap, cs):
-    """Build every active figure for a control state, keyed by chart key. Robust per-chart."""
+    """Build every active figure for a control state, keyed by chart key."""
     out = {}
     for c in charts_pkg.active(snap):
         try:
@@ -200,10 +200,8 @@ def build_app(snap):
                         "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]}),
                         className="mt-card", style={"marginBottom": "14px", "padding": "6px 8px 8px"})
 
-    # --- vol-history section: IV-history-vs-realized + RV estimator stack, own start-date ---
     _gcfg = {"displaylogo": False, "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"]}
 
-    # --- realised-vol regime + estimator/IV term structure (non-reactive) ---
     def _finite(value):
         try:
             value = float(value)
@@ -353,10 +351,10 @@ def build_app(snap):
     volhist_section = None
     if _VH_ON:
         volhist_section = html.Div([
-            html.Div("Vol history — implied vs realized", style={
+            html.Div("Vol history — implied vs realised", style={
                 "fontWeight": 800, "fontSize": "15px", "color": "#0f172a", "marginBottom": "4px"}),
-            html.Div("Implied-vol history buckets vs the composite realized-vol Mean, plus the "
-                     "realized-vol estimator stack. Set the x-axis start date and refresh.",
+            html.Div("Implied-vol history buckets vs the composite realised-vol Mean, plus the "
+                     "realised-vol estimator stack. Set the x-axis start date and refresh.",
                      style={"fontSize": "11.5px", "color": "#94a3b8", "marginBottom": "12px"}),
             html.Div([
                 html.Div([html.Div("X-axis start date", style={**_slbl, "marginTop": "0"}),

@@ -55,7 +55,7 @@ def _bs(S, K, T, r, q, sigma, call=True):
 # skewlab run. Chain IVs are the genuine SVI curve  IV(k)=sqrt(w(k)/T),  so the smile is
 # arbitrage-free by construction and, at the default 30DTE, reproduces that run's ATF/shape
 # (SPY: steep put skew, min ~+3.8% log-moneyness, ATF ~13.1%). `spot` pins the symbol's
-# synthetic price to "today"; `atf`/`rv` pin the ATM-IV history and composite realized vol.
+# synthetic price to "today"; `atf`/`rv` pin the ATM-IV history and composite realised vol.
 _SNAPSHOTS = {
     "SPY": dict(spot=751.34, atf=0.131, rv=0.142,
                 svi=dict(a=-0.003, b=0.038, rho=0.01, m=0.038, s=0.110)),
@@ -107,7 +107,7 @@ class _World:
             close = start * np.exp(np.cumsum(rets))
 
         # pin a symbol's terminal ("today") spot to its calibrated snapshot. A constant
-        # rescale preserves the path's log-returns, so realized vol is unchanged.
+        # rescale preserves the path's log-returns, so realised vol is unchanged.
         _snap = _SNAPSHOTS.get(self.symbol.upper())
         if _snap and close[-1] > 0:
             close = close * (_snap["spot"] / close[-1])
@@ -118,9 +118,9 @@ class _World:
         self.ohlcv = pd.DataFrame({"Open": op, "High": np.maximum(hi, close),
                                    "Low": np.minimum(lo, close), "Close": close,
                                    "Volume": rng.integers(1e6, 8e6, n)}, index=self.dates)
-        # rolling realized vol (annualised, 252) from close-to-close
+        # rolling realised vol (annualised, 252) from close-to-close
         lr = pd.Series(rets, index=self.dates)
-        self.realized = {w: lr.rolling(w).std() * np.sqrt(252) for w in (5, 7, 10, 15, 21)}
+        self.realised = {w: lr.rolling(w).std() * np.sqrt(252) for w in (5, 7, 10, 15, 21)}
 
     def spot_on(self, date):
         d = pd.Timestamp(date).normalize()
@@ -130,7 +130,7 @@ class _World:
 
     def rv_on(self, date, lookback=21):
         w = min((5, 7, 10, 15, 21), key=lambda x: abs(x - lookback))
-        r = self.realized[w]
+        r = self.realised[w]
         d = pd.Timestamp(date).normalize()
         r = r[r.index <= d].dropna()
         return float(r.iloc[-1]) if len(r) else 0.15
@@ -150,7 +150,7 @@ class _DemoBase:
 
 
 class DemoCVT(_DemoBase):
-    """Synthetic option-chain + realized-vol source (the ``cvt`` role)."""
+    """Synthetic option-chain + realised-vol source (the ``cvt`` role)."""
 
     R, Q = 0.041, 0.010
 
@@ -170,7 +170,7 @@ class DemoCVT(_DemoBase):
         snap = _SNAPSHOTS.get(str(symbol).upper())
         if snap:
             # genuine raw-SVI curve from an actual fitted run: IV(k)=sqrt(w(k)/T), so it is
-            # arbitrage-free by construction. The variance level tracks realized vol on the
+            # arbitrage-free by construction. The variance level tracks realised vol on the
             # observation date, so 'today' reproduces the run and earlier overlays differ.
             lb = max(int(round(dte * 5 / 7)), 2)
             lvl = 1.0
@@ -231,7 +231,7 @@ class DemoCVT(_DemoBase):
         mean = 0.30 * cc + 0.15 * park + 0.15 * ht + 0.20 * yz + 0.10 * ewma + 0.10 * garch
         cols = {"C-C": cc, "Parkinson": park, "Hodges-Tompkins": ht, "YZ": yz,
                 "EWMA_halflife": ewma, "GARCH": garch, "Mean": mean}
-        # pin the latest composite Mean to the snapshot's realized vol (scales all, keeps shape)
+        # pin the latest composite Mean to the snapshot's realised vol (scales all, keeps shape)
         snap = _SNAPSHOTS.get(str(symbol).upper())
         if snap and "rv" in snap:
             m = mean.dropna()

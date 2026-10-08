@@ -48,13 +48,13 @@ def make(snap, cs):
         today_rr = float("nan")
 
     fig = make_subplots(rows=2, cols=2, vertical_spacing=0.14, horizontal_spacing=0.09,
-                        subplot_titles=("ATM implied vs realized (carry / VRP)", "ATM vol regime",
+                        subplot_titles=("ATM implied vs realised (carry / VRP)", "ATM vol regime",
                                         "Skew over time (25Δ / 10Δ risk reversal)", "Vol vs skew regime"))
     star = dict(color="black", size=11, symbol="star")
 
     cur_vrp = float("nan")
     if rv is not None and rv.dropna().size:
-        fig.add_trace(go.Scatter(x=idx, y=rv.values, name="realized", line=dict(color="gray", width=1.5)),
+        fig.add_trace(go.Scatter(x=idx, y=rv.values, name="realised", line=dict(color="gray", width=1.5)),
                       row=1, col=1)
         fig.add_trace(go.Scatter(x=idx, y=atm.values, name="implied (ATM)",
                                  line=dict(color="#636efa", width=2), fill="tonexty",

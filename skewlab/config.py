@@ -117,7 +117,7 @@ class RunConfig:
         "XSP": "SPY", "ES": "SPY", "MES": "SPY", "MES=F": "SPY",
     })
 
-    # --- RV vs IV (realized-implied fair value) ---
+    # --- RV vs IV (realised-implied fair value) ---
     show_rv_compare: bool = True         # RV-implied fair vol/straddle vs market now & open
     rv_trading_year: float = 252.0       # trading days/yr the composite RV is annualised on;
                                          # the RV straddle's tau uses THIS, not calendar/365

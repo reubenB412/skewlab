@@ -11,33 +11,33 @@ import pandas as pd
 from scipy.stats import norm
 
 
-# --- calendar DTE -> realized-vol lookback (trading days) ---------------------------
+# Calendar DTE to realised-vol lookback
 def trading_days_for_dte(dte, per_week=5, cal_per_week=7, floor=2):
     """Convert calendar days-to-expiry into the equivalent number of TRADING days, for
-    the realized-vol lookback passed to get_composite_realised_volatility.
+    the realised-vol lookback passed to get_composite_realised_volatility.
 
-    Uses the 5-trading-days-per-7-calendar-days ratio, so the horizon of the realized
+    Uses the 5-trading-days-per-7-calendar-days ratio, so the horizon of the realised
     window matches the option's time to expiry:
         30 -> 21,  21 -> 15,  14 -> 10,  10 -> 7,  7 -> 5
     """
     return max(int(floor), int(round(float(dte) * per_week / cal_per_week)))
 
 
-# --- realized-vol -> fair ATM-forward straddle --------------------------------------
+# Realised vol to fair ATM-forward straddle
 _SQRT_2_OVER_PI = 0.7978845608028654          # sqrt(2/pi): the ATMF straddle coefficient
 
 
 def rv_atmf_straddle(forward, sigma, dte, trading_year=252.0,
                      per_week=5, cal_per_week=7):
     """Fair ATM-forward straddle implied by an annualised vol `sigma` (e.g. yesterday's
-    close realized vol), priced over the option's remaining life.
+    close realised vol), priced over the option's remaining life.
 
         straddle  ~=  sqrt(2/pi) * F * sigma * sqrt(tau)   ( ~= 0.7979 * one_sd )
 
     This is the leading (undiscounted, first-order) term of the exact ATMF straddle
     2*F*e^{-rT}*(2*Phi(sigma*sqrt(tau)/2) - 1); accurate to a few cents at equity horizons.
 
-    IMPORTANT (day-count consistency, cf. SKEWLAB_TODO #10): a realized vol from daily
+    IMPORTANT (day-count consistency, cf. SKEWLAB_TODO #10): a realised vol from daily
     returns is annualised on TRADING days (~252/yr), so `tau` here is measured in trading
     days too -- trading_days_to_expiry / trading_year -- NOT calendar dte/365. Pricing a
     252-basis vol with a 365 calendar tau would bias the straddle high by ~sqrt(365/252)-1
@@ -54,7 +54,7 @@ def rv_atmf_straddle(forward, sigma, dte, trading_year=252.0,
     return _SQRT_2_OVER_PI * F * s * np.sqrt(tau)
 
 
-# --- Black-Scholes (European, continuous dividend q) --------------------------------
+# Black-Scholes (European, continuous dividend q)
 def bs_price_delta(S, K, T, r, q, sigma, is_call):
     """Price and delta of one option."""
     if T <= 0 or sigma <= 0:
@@ -116,13 +116,13 @@ def bs_call_vec(strikes, sigmas, S, T, r, q):
     return S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
 
 
-# --- skew curve: polynomial fit + wing extrapolation --------------------------------
+# Polynomial skew fit
 def fit_skew_curve(strikes, vols, degree=5):
     """numpy LINEST equivalent: a `degree`-order polynomial of vol vs strike."""
     return np.poly1d(np.polyfit(strikes, vols, degree))
 
 
-# --- SVI smile (Gatheral raw parameterisation, fit in log-moneyness) ----------------
+# SVI smile (Gatheral raw parameterisation, fit in log-moneyness)
 # Total implied variance  w(k) = sigma_BS(k)^2 * T  is modelled as
 #     w(k) = a + b * ( rho*(k - m) + sqrt((k - m)^2 + s^2) )      (k = ln(K / F))
 # 5 params (a, b, rho, m, s). This is the industry-standard arbitrage-controllable
@@ -264,7 +264,7 @@ def fine_strikes(grid_strikes, forward, one_sd, z_grid, wing_extra_sd, wings_on,
     return np.linspace(lo, hi, n)
 
 
-# --- implied (risk-neutral) distribution: Breeden-Litzenberger ----------------------
+# Risk-neutral distribution (Breeden-Litzenberger)
 def raw_density(strikes, calls, r, T):
     """UNCLIPPED risk-neutral density e^{rT} d2C/dK2. Negative regions => butterfly
     arbitrage in the fitted smile (a call butterfly with a negative price)."""
@@ -346,7 +346,7 @@ def hover_stats(hist_pct, cur_pct):
                 pctl3=pctile(last63.values, cur_pct))
 
 
-# --- seeding the curve from the market chain ----------------------------------------
+# Seed the curve from the market chain
 def market_iv_by_strike(chain, forward):
     """OTM implied-vol series indexed by strike (puts below fwd, calls above)."""
     df = chain.sort_index()

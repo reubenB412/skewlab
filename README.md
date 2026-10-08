@@ -1,29 +1,19 @@
 # skewlab
 
-**An arbitrage-aware option skew and volatility dashboard.** skewlab fits an SVI smile,
-recovers the risk-neutral density, checks static arbitrage, and compares implied volatility
-with realised-volatility levels and term structures.
+An option-skew and volatility dashboard built around the questions I use when looking at a
+discretionary options book: where skew sits, whether implied volatility is rich or cheap to
+realised volatility, and what distribution the surface implies.
 
 [![CI](https://github.com/reubenB412/skewlab/actions/workflows/ci.yml/badge.svg)](https://github.com/reubenB412/skewlab/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
-> **Runs offline.** The public demo uses deterministic synthetic data. It reads no credentials,
-> market-data terminal, network service, or portfolio file.
+The public version runs offline on deterministic synthetic data. It does not read credentials,
+a market-data terminal, network services, or portfolio files.
 
 ![SPY skew analysis summary](docs/analysis_summary_demo.png)
 
-*The summary joins the fitted surface, changes from the prior observation, regime percentiles,
-position Greeks, arbitrage checks, and RV-versus-IV fair value.*
-
-## Why I built it
-
-I use skewlab to organise the daily questions behind a discretionary options book: where skew
-sits, whether implied volatility is rich or cheap to realised volatility, what distribution the
-surface implies, and how an existing position responds. The public repository keeps the maths,
-dashboard, and tests while replacing the market-data connection with a reproducible adapter.
-
-The dashboard works best on liquid option chains. Thin strikes, wide spreads, stale quotes, and
-after-hours data weaken the fit and should reduce confidence in the output.
+The summary combines the fitted surface, changes from the prior observation, regime percentiles,
+position Greeks, arbitrage checks, and RV-versus-IV fair value.
 
 ## What it calculates
 
@@ -31,29 +21,20 @@ after-hours data weaken the fit and should reduce confidence in the output.
   condition. A polynomial fit remains available for comparison.
 - **Risk-neutral density:** applies the Breeden-Litzenberger second derivative to fitted call
   prices and reports distribution moments.
-- **Implied versus realised:** compares the market ATM-forward straddle with a realised-volatility
-  fair value on a consistent trading-day clock.
-- **RV regime:** aggregates daily variance across 5 to 180 completed sessions, with separate
+- **Implied versus realised:** compares the ATM-forward straddle with a realised-volatility fair
+  value on a consistent trading-day clock.
+- **RV regime:** aggregates daily variance across 5 to 180 completed sessions, separating
   intraday, overnight, continuous, and jump components.
 - **Forward ATM-IV:** aligns 10 to 180-day maturities by observation date and actual DTE. Stale
   maturities remain in diagnostics but are not plotted.
-- **Position analytics:** calculates analytic Greeks and a realised-volatility, vega, and delta
-  P&L decomposition for an optional manual book.
+- **Position analytics:** calculates Greeks and a realised-volatility, vega, and delta P&L
+  decomposition for an optional manual book.
 
-## How the core models work
+SVI provides a smooth smile with linear wings. Breeden-Litzenberger turns the fitted call-price
+curve into risk-neutral probabilities. The equations, variance clocks, fitting choices, and
+failure cases are in [the methodology](docs/METHODOLOGY.md).
 
-**SVI** fits a five-parameter curve to total implied variance as a function of log-moneyness.
-This produces a smooth volatility smile between observed strikes and linear behaviour in the
-wings. skewlab then evaluates the Durrleman condition across the fitted curve; negative values
-indicate butterfly arbitrage.
-
-**Breeden-Litzenberger** recovers the market's risk-neutral density from the second derivative
-of fitted call prices with respect to strike. skewlab calculates that derivative on the smooth
-SVI surface, then checks that the density remains non-negative and integrates to approximately
-one. The result describes option-implied probabilities under risk-neutral pricing, not a forecast
-of the future return distribution.
-
-## Quickstart
+## Run the demo
 
 ```bash
 git clone https://github.com/reubenB412/skewlab.git
@@ -63,51 +44,47 @@ pip install -r requirements.txt
 python skewlab.py
 ```
 
-The dashboard opens at `http://127.0.0.1:8050`. Change the `INPUTS` block in
-[`skewlab.py`](skewlab.py) to select a symbol, target DTE, skew model, or manual position book.
+The dashboard opens at `http://127.0.0.1:8050`. Edit the `INPUTS` block in
+[`skewlab.py`](skewlab.py) to change the symbol, target DTE, skew model, or manual position book.
 
 ## Worked demo: SPY, 24 August 2026
 
-The deterministic example uses a synthetic SPY chain with spot at 751.34, forward at 752.81,
-23 calendar days to expiry, and 13.11% ATM-forward implied volatility. The RV source contains
-399 completed sessions. The unfinished final session is excluded. All eight configured ATM-IV
-maturities, from 10 to 180 days, align to the same observation date.
+The fixed example uses a synthetic SPY chain with spot at 751.34, forward at 752.81, 23 calendar
+days to expiry, and 13.11% ATM-forward implied volatility. It contains 399 completed RV sessions
+and eight aligned ATM-IV maturities.
 
-The fitted RV curve is labelled **Front-end RV compressed**. Its `RV(5)/RV(20)` ratio is 0.583
-and `RV(10)/RV(30)` is 0.593. Short-window realised volatility therefore sits below the slower
-windows. This is a baseline, not a long-straddle signal. A possible early tremor would require
-the front ratios and short-window acceleration to rise while the option market had not already
-repriced the move.
+The RV curve is labelled **Front-end RV compressed**. `RV(5)/RV(20)` is 0.583 and
+`RV(10)/RV(30)` is 0.593, so short-window realised volatility sits below the slower windows.
+This alone is not a long-straddle signal. I would look for the front ratios and short-window
+acceleration to rise before the option market reprices the move.
 
-That interpretation fails if the latest session is incomplete, an IV maturity is stale, the
-chain is too thin to fit reliably, or the front of the implied curve already prices the expected
-movement. The synthetic result demonstrates the calculation path; it does not demonstrate
-tradable performance.
+The interpretation fails if the latest session is incomplete, an IV maturity is stale, the
+chain is too thin to fit, or the implied curve already prices the expected movement. The example
+demonstrates the calculation path, not tradable performance.
 
 ## Validation and limitations
 
-The deterministic SPY run produces the following numerical checks:
+Reproduce the documented numerical checks with:
 
-- the recovered density integrates to **0.99985**, with a minimum sampled density of
-  **1.19 × 10⁻⁵**;
-- the minimum Durrleman `g(k)` is **0.0682** across `k ∈ [-0.5, 0.5]`, above the zero
-  butterfly-arbitrage boundary;
-- **399** completed RV sessions enter the history and the incomplete final session is rejected;
-- all **8** configured ATM-IV maturities align and plot;
-- **26 tests** cover pricing identities, variance arithmetic, stale-date rejection, display
-  output, and the full offline pipeline. CI runs them on Python 3.10, 3.11, and 3.12.
+```bash
+python -m skewlab.validate
+pytest -q
+```
 
-These checks test numerical consistency and data handling. They do not establish forecast skill,
-execution quality, or trading profitability. The public adapter has no live quotes, bid-ask
-model, transaction costs, slippage, or portfolio-level risk limits. SVI is fitted independently
-by maturity, so sparse or noisy chains can still produce unstable parameters even when the
-sampled arbitrage checks pass.
+The fixed run returns a density integral of 0.99985, minimum sampled density of
+1.19 × 10⁻⁵, minimum Durrleman `g(k)` of 0.0682 on `k ∈ [-0.5, 0.5]`, 399 completed RV sessions,
+and eight aligned ATM-IV maturities. CI runs the tests on Python 3.10, 3.11, and 3.12.
+
+These are consistency and data-handling checks. They do not establish forecast skill, execution
+quality, or profitability. The public adapter has no live quotes, bid-ask model, transaction
+costs, slippage, or portfolio-level risk limits. SVI is fitted independently by maturity, so a
+sparse chain can produce unstable parameters even when the sampled checks pass.
 
 ## Dashboard gallery
 
 ![SPY skew curve, offline demo](docs/skew_curve_demo.png)
 
-*Raw-SVI fit with prior-observation and maturity overlays.*
+*Raw SVI fit with prior-observation and maturity overlays.*
 
 ![SPY strike vol changes](docs/strike_vol_change_demo.png)
 
@@ -115,7 +92,7 @@ sampled arbitrage checks pass.
 
 ![SPY implied risk-neutral density](docs/implied_density_demo.png)
 
-*Breeden-Litzenberger density from the fitted smile, compared with a flat-volatility lognormal.*
+*Breeden-Litzenberger density against a flat-volatility lognormal.*
 
 ![SPY realised-vol regime summary](docs/rv_regime_summary_demo.png)
 
@@ -123,16 +100,15 @@ sampled arbitrage checks pass.
 
 ![SPY RV estimator term structure](docs/rv_estimator_term_structure_demo.png)
 
-*The 5 to 180-session estimator table. Front-end changes can prompt a closer look at long-gamma
-conditions, but the table is not a trade signal.*
+*Five to 180-session realised-volatility estimates.*
 
 ![SPY RV versus forward ATM-IV term structure](docs/rv_vs_atm_iv_term_structure_demo.png)
 
-*Backward RV windows against the aligned 10 to 180-day forward ATM-IV curve.*
+*Backward RV windows against the aligned forward ATM-IV curve.*
 
 ![SPY IV history and regime](docs/iv_history_regime_demo.png)
 
-*ATM volatility, risk reversals, and their current historical percentiles.*
+*ATM volatility, risk reversals, and their historical percentiles.*
 
 ![SPY implied-vol history versus composite realised](docs/vol_history_demo.png)
 
@@ -140,25 +116,23 @@ conditions, but the table is not a trade signal.*
 
 ![SPY realised-vol estimator stack](docs/rv_estimator_stack_demo.png)
 
-*Close-to-close, range, EWMA, GARCH, and blended realised-volatility estimates.*
+*Close-to-close, range, EWMA, GARCH, and blended estimates.*
 
-## Architecture
+## Code layout
 
 ```text
 skewlab/
-  model.py       pricing, Greeks, SVI, density, no-arbitrage checks
+  model.py       pricing, Greeks, SVI, density, arbitrage checks
   rv.py          variance recovery, aggregation, regime and term tables
-  data.py        adapter boundary and immutable Snapshot
+  data.py        adapter boundary and Snapshot assembly
   analysis.py    calculated metrics and written interpretation
-  charts/        one figure builder per chart
+  charts/        figure builders
   app.py         Dash layout and callbacks
-  pipeline/      deterministic offline data adapter
+  pipeline/      deterministic offline adapter
 ```
 
-The quantitative functions take explicit inputs and do not perform network I/O. The data layer
-builds one immutable snapshot, and the charts read that snapshot. See
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
-[`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) for the design and equations.
+The quantitative functions take explicit inputs and do not perform network I/O. See
+[the architecture notes](docs/ARCHITECTURE.md) for the adapter boundary and chart registry.
 
 ## References
 

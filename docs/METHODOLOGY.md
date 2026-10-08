@@ -13,7 +13,7 @@ F = S · e^(r−q)T
 ```
 
 The at-the-forward vol (ATF) is anchored on the median implied vol of the strikes nearest
-`F`, which is robust to a single bad ATM quote. The one-standard-deviation move is
+`F`, which limits the effect of a single bad ATM quote. The one-standard-deviation move is
 `σ₁ = F · σ_ATF · √T`, and the skew is seeded on a grid of `z ∈ {−3…+3}` standard deviations
 at strikes `F + z·σ₁`.
 
@@ -46,12 +46,12 @@ integrates to 1 (a unit test asserts this) and is non-negative — the **butterf
 exactly `p(K) ≥ 0`. The **calendar** check requires total variance to be non-decreasing in
 maturity across the fetched tenors.
 
-## 4. RV vs IV — realized-implied fair value
+## 4. RV vs IV — realised-implied fair value
 
-The variance-risk-premium panel turns a backward-looking realized vol into a forward-looking
+The variance-risk-premium panel turns a backward-looking realised vol into a forward-looking
 *fair* option value and compares it to the market.
 
-- **Fair vol** = `σ_RV`, the composite realized vol as of the most recent close.
+- **Fair vol** = `σ_RV`, the composite realised vol as of the most recent close.
 - **Fair ATM-forward straddle**:
 
 ```
@@ -61,7 +61,7 @@ straddle ≈ √(2/π) · F · σ_RV · √τ ≈ 0.7979 · F · σ_RV · √τ
 This is the leading (undiscounted, first-order) term of the exact ATMF straddle
 `2·F·e^(−rT)·(2Φ(σ√τ/2) − 1)`; equivalently `0.7979 · σ₁`.
 
-**Day-count consistency.** A realized vol from daily returns is annualised on *trading* days
+**Day-count consistency.** A realised vol from daily returns is annualised on *trading* days
 (~252/yr), so `τ` here is measured in trading days too — `τ = (trading days to expiry)/252`,
 **not** calendar `dte/365`. Pricing a 252-basis vol against a 365 calendar `τ` would bias the
 straddle high by `√(365/252) − 1 ≈ +20%` on `τ` (~+9% on the straddle).
@@ -70,9 +70,9 @@ The panel then shows the market at the day's **open** and **now** against this f
 the variance-risk premium `(σ_IV − σ_RV)` and the intraday drift `(σ_now − σ_open)` read at a
 glance.
 
-## 5. Composite realized-vol estimator
+## 5. Composite realised-vol estimator
 
-The realized-vol benchmark blends several estimators to trade off bias and sampling variance:
+The realised-vol benchmark blends several estimators to trade off bias and sampling variance:
 close-to-close, Parkinson, Hodges–Tompkins, Yang–Zhang, optional Garman–Klass /
 Rogers–Satchell range estimators, an EWMA counterweight, and an optional GJR-GARCH(1,1,1)
 conditional-vol column. The composite `Mean` uses fixed efficiency weights (inverse sampling
@@ -80,10 +80,10 @@ variance), which down-weight the noisy close-to-close estimator and up-weight th
 range-based ones. The lookback in trading days is matched to the option's calendar horizon
 via `trading_days_for_dte(dte) = round(dte · 5/7)`.
 
-## 6. Realized-vol regime and term structure
+## 6. Realised-vol regime and term structure
 
-The high-frequency-shaped source reports annualized volatility on a source basis `B_s`
-(365 in the demo). skewlab first recovers unannualized daily variance:
+The high-frequency-shaped source reports annualised volatility on a source basis `B_s`
+(365 in the demo). skewlab first recovers unannualised daily variance:
 
 ```
 v_t = RV_t² / B_s
@@ -104,7 +104,7 @@ Documented composition shares use:
 - overnight share = rolling overnight variance / rolling total variance;
 - continuous share = rolling bipower variance / rolling total variance.
 
-The curve shape is summarized by `RV(5)/RV(20)`, `RV(10)/RV(30)`, curvature
+The curve shape is summarised by `RV(5)/RV(20)`, `RV(10)/RV(30)`, curvature
 `[RV(5)+RV(10)]/[2·RV(20)]`, and the three-session change in `RV(5)`. Percentiles are computed
 inside a trailing window that ends on the observation being ranked, so future data cannot leak
 into the regime label.
@@ -117,7 +117,7 @@ auxiliary point at the same DTE and becomes the fallback only when every auxilia
 unavailable or date-misaligned. Stale tenor diagnostics are retained, but stale IV is never drawn.
 
 The estimator table follows the presentation semantics of the private
-`opd._format_display(..., axis=1)`: each estimator row is independently normalized through the
+`opd._format_display(..., axis=1)`: each estimator row is independently normalised through the
 `YlGnBu` scale, percentages show two decimals, negative values are red, and missing values are
 blank. The public implementation computes those styles locally with Pandas Styler and applies
 them inline to native Dash cells; it does not import OPD or depend on a Styler `<style>` block.

@@ -17,14 +17,12 @@ from __future__ import annotations
 from skewlab.config import RunConfig
 from skewlab.run import main
 
-# =====================================================================================
 # INPUTS
-# =====================================================================================
 symbol   = "SPY"
 date     = None                    # None -> latest session
 prev_date = None                   # explicit previous-obs date, or None to pin via lookback
 
-# --- skew curve model: "svi" (arbitrage-aware, default) or "poly" -------------------
+# "svi" (arbitrage-aware, default) or "poly"
 SKEW_MODEL  = "svi"
 POLY_DEGREE = 5
 
@@ -52,9 +50,7 @@ cfg = RunConfig(
     open_in_browser=True,
 )
 
-# =====================================================================================
 # OPTIONAL MANUAL POSITIONS
-# =====================================================================================
 POSITIONS = None
 SHARES    = None
 # POSITIONS = [(555, "P", -1), (650, "C", -1)]   # e.g. a short strangle

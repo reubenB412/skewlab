@@ -33,7 +33,7 @@ def _add_delta_markers(fig, snap, cs):
                 f"<br>3m z {stats['z3']:+.2f}  ·  3m pctile {stats['pctl3']:.0f}"
                 f"<br>range [{stats['lo']:.1f}–{stats['hi']:.1f}], mean {stats['mean']:.1f}  ({stats['n']} obs)")
         if mode == "sell" and rv_last is not None:
-            body += f"<br>vs realized: VRP {iv * 100 - rv_last:+.1f} pts  ({'rich→sell' if iv*100>rv_last else 'cheap'})"
+            body += f"<br>vs realised: VRP {iv * 100 - rv_last:+.1f} pts  ({'rich→sell' if iv*100>rv_last else 'cheap'})"
         body += ("<br><i>sell carry: want high rank/pctile/z</i>" if mode == "sell"
                  else "<br><i>buy tail: want low rank/pctile/z</i>")
         return head + body + "<extra></extra>"

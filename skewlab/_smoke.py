@@ -21,7 +21,6 @@ def make_fake_snapshot(with_prev=True, with_hist=True, with_pos=True):
     fwd = spot * np.exp((r - q) * t)
     one_sd = fwd * atf * np.sqrt(t)
     grid_strikes = fwd + z * one_sd
-    # a realistic put-skewed smile
     skew_pct = {-3.: 0.42, -2.: 0.24, -1.: 0.10, 0.: 0.0, 1.: -0.05, 2.: -0.04, 3.: 0.02}
     grid_vols = np.array([atf * (1.0 + skew_pct[zz]) for zz in z])
     poly = model.fit_skew_curve(grid_strikes, grid_vols, cfg.poly_degree)
@@ -61,7 +60,6 @@ def make_fake_snapshot(with_prev=True, with_hist=True, with_pos=True):
             grid_strikes=b_gs, forward=b_fwd, atf=b_atf, one_sd=b_one, t=dte / 365.0, r=r, q=q,
             spot=spot, dte=dte, expiry=pd.Timestamp("2026-06-30"), hist=iv_history))
 
-    # synthetic VIX / VVIX panels
     vidx = pd.bdate_range("2024-01-01", periods=400)
     rng2 = np.random.default_rng(1)
     vix_c = pd.Series(15 + 6 * np.abs(rng2.normal(0, 1, 400)).cumsum() / 30, index=vidx)
@@ -111,7 +109,6 @@ def run():
     assert "BESPOKE ANALYSIS" in txt and len(txt) > 200
     print(f"\nanalysis text: {len(txt)} chars, {txt.count(chr(10))+1} lines  OK")
 
-    # variants: no prev / no history / no positions
     for kw in [dict(with_prev=False), dict(with_hist=False), dict(with_pos=False)]:
         s2 = make_fake_snapshot(**kw)
         keys = [c.key for c in charts_pkg.active(s2)]

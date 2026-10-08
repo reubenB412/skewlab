@@ -63,7 +63,7 @@ def pnl_decomp(snap, cs):
         b["theta"] += m * thetaP_day * days
         b["vega"] += m * vegaP * (sigT - sigP)
     b["residual"] = b["actual_opt"] - (b["delta"] + b["gamma"] + b["theta"] + b["vega"])
-    b["realized_vol"] = b["gamma"] + b["theta"]
+    b["realised_vol"] = b["gamma"] + b["theta"]
     b["total"] = b["share"] + b["actual_opt"]
     b["days"], b["dS"] = days, dS
     return b

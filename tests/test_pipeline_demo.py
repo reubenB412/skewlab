@@ -14,6 +14,7 @@ from skewlab.app import _opd_format_display_model, build_app
 from skewlab.pipeline.demo import get_demo_pipeline
 from skewlab.inspect import rv_compare_frame, collect_run_data
 from skewlab.charts import rv_term_structure
+from skewlab.validate import demo_checks
 
 
 def _demo_cfg(**kw):
@@ -230,3 +231,12 @@ def test_stale_chain_is_rejected_at_the_data_boundary():
     assert pd.isna(row["atf_iv"])
     assert pd.isna(row["integrated_variance"])
     assert any("does not match main snapshot" in warning for warning in warnings)
+
+
+def test_documented_demo_checks_are_reproducible():
+    checks = demo_checks()
+    assert np.isclose(checks["density_area"], 0.99985, atol=5e-6)
+    assert np.isclose(checks["minimum_density"], 1.19e-5, atol=5e-8)
+    assert np.isclose(checks["minimum_durrleman_g"], 0.0682, atol=5e-5)
+    assert checks["completed_rv_sessions"] == 399
+    assert checks["aligned_atm_iv_maturities"] == 8

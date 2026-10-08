@@ -11,13 +11,13 @@ skewlab/
   config.py    RunConfig dataclass + scenario presets — every knob, no side effects.
   model.py     PURE math. Black-Scholes price/greeks, SVI fit (+ Durrleman butterfly g),
                wing extrapolation, Breeden-Litzenberger density, butterfly/calendar arb,
-               distribution stats, delta-target inversion, realized-vol lookback map,
+               distribution stats, delta-target inversion, realised-vol lookback map,
                and the RV-implied ATMF straddle.
   rv.py        PURE realised-variance recovery, annualisation rebasing, rolling aggregation,
                no-lookahead percentiles, regime labels, and RV/IV tables.
   data.py      I/O. fetch_snapshot(cfg, cvt, opd) does ALL fetching once and returns an
                immutable Snapshot; CurveState holds the mutable slider knobs. Source helpers
-               handle forward/ATF identification (robust to thin chains), the previous-day
+               handle forward/ATF identification when chains are thin, the previous-day
                overlay, term curves, IV history, RV-vs-IV fields, and RVTermState assembly.
   analysis.py  metrics(snap, cs) computes every number once; render_text / render_html
                produce the plain-text and Dash-card narratives.
@@ -61,13 +61,13 @@ skewlab/
 `skewlab.data` depends only on the small surface below. Anything implementing it can drive the
 dashboard.
 
-`cvt` (chains + realized vol):
+`cvt` (chains + realised vol):
 - `get_quick_option_chain(symbol, date, prev_date, target_dte, size, verbose) -> DataFrame`
   indexed by strike, with columns `S, R, Q, dte, T, implied_vol, iv_call, iv_put, straddle,
   mid_call, mid_put, midpoint, expiration`.
 - `get_composite_realised_volatility(symbol, lookback, start, end, ...) -> DataFrame` with a
   `Mean` column indexed by date.
-- `get_rv_term_source(...) -> dict` with annualized RV columns plus completion flags and
+- `get_rv_term_source(...) -> dict` with annualised RV columns plus completion flags and
   timestamps. `rv.py` converts those vols back to daily variance before rebasing/aggregation.
 
 `opd` (calendar / prices / panels):

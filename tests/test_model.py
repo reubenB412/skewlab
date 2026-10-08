@@ -24,7 +24,6 @@ def test_breeden_litzenberger_density_integrates_to_one():
 def test_call_delta_monotonic_in_strike():
     Ks = np.linspace(80.0, 130.0, 60)
     dc = [model.bs_price_delta(100.0, K, 0.5, 0.02, 0.0, 0.20, True)[1] for K in Ks]
-    # call delta is (weakly) decreasing as strike rises
     assert all(a >= b - 1e-9 for a, b in zip(dc[:-1], dc[1:]))
     assert dc[0] > dc[-1]
 
@@ -36,7 +35,7 @@ def test_svi_fit_is_arbitrage_free_on_a_calm_smile():
     vols = np.array([0.26, 0.22, 0.19, 0.17, 0.155, 0.150, 0.152])   # put-skewed
     fit = model.fit_svi(Ks, vols, F, T)
     min_g, _ = model.svi_min_butterfly_g(fit.svi_params, np.linspace(-0.5, 0.5, 400))
-    assert min_g > -1e-6           # Durrleman g >= 0 => no butterfly arbitrage
+    assert min_g > -1e-6
 
 
 def test_rv_atmf_straddle_value_and_guards():
